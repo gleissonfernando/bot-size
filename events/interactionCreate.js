@@ -11,6 +11,7 @@ const {
 } = require('discord.js');
 
 const { isGerencia } = require('../utils/permissions');
+const config = require('../config/config');
 
 const CATEGORIA_ID       = '1497388763054342244';
 const CARGO_APROVADO     = '1490151003864043570';
@@ -118,6 +119,25 @@ module.exports = {
             );
 
             await interaction.showModal(modal);
+
+            try {
+                const logsChannel = await interaction.guild.channels.fetch(config.logsChannelId).catch(() => null);
+                if (logsChannel && logsChannel.isTextBased()) {
+                    const embedLogAbertura = new EmbedBuilder()
+                        .setColor('#5865F2')
+                        .setTitle('📝 Formulário aberto')
+                        .setDescription('Um usuário abriu o formulário de recrutamento.')
+                        .addFields(
+                            { name: 'Usuário', value: `<@${interaction.user.id}> (\`${interaction.user.id}\`)`, inline: true },
+                            { name: 'Canal', value: `<#${interaction.channelId}>`, inline: true },
+                            { name: 'Ação', value: 'Clique no botão **Iniciar Recrutamento**', inline: false }
+                        )
+                        .setTimestamp();
+
+                    await logsChannel.send({ embeds: [embedLogAbertura] });
+                }
+            } catch {}
+
             return;
         }
 
