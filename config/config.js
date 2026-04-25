@@ -13,6 +13,7 @@ module.exports = {
     },
     staffRoles: [
         1485109291542118420,
+        1497405005802635374,
   
     ],
     authorizedUserIds: (process.env.AUTHORIZED_USER_IDS || '')
