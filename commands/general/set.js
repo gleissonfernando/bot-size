@@ -15,54 +15,55 @@ module.exports = {
         .setDescription('🎯 Abre o sistema de recrutamento Size'),
 
     async execute(interaction) {
-        // Removida a verificação de permissão para permitir que todos vejam o painel
-
-        // Nome do novo arquivo de banner
+        // Nome do arquivo de banner
         const fileName = 'IMG_4234.png';
         const bannerPath = path.join(__dirname, '../../foto/', fileName);
 
         if (!fs.existsSync(bannerPath)) {
             await interaction.reply({
-                content: `❌ Banner não encontrado (${fileName}). Contate um administrador.`,
-                flags: 64
+                content: `❌ **Erro:** Banner oficial não encontrado. Por favor, verifique a pasta \`foto\`.`,
+                ephemeral: true
             });
             return;
         }
 
         const embed = new EmbedBuilder()
-            .setColor('#5865F2')
+            .setColor('#D4AF37') // Cor Dourada para combinar com a logo
             .setAuthor({
-                name: 'Size — Recrutamento Oficial',
+                name: 'SIZE MANAGEMENT • RECRUTAMENTO',
                 iconURL: interaction.guild.iconURL({ dynamic: true })
             })
-            .setTitle('📋  Bem-vindo ao Sistema de Setagem')
+            .setTitle('✨ Seja bem-vindo à nossa seletiva!')
             .setDescription(
-                '> 👋 Olá, **candidato**! Você está prestes a iniciar o processo de recrutamento oficial da **Size**.\n\n' +
-                '> 📌 Leia com atenção antes de começar:\n\n' +
-                '🔹 Responda todas as perguntas com sinceridade\n' +
-                '🔹 O processo é rápido e totalmente online\n' +
-                '🔹 Nossa equipe analisará sua ficha em breve'
+                '### 📋 Informações Importantes\n' +
+                'Olá, **candidato**! Você está prestes a iniciar o processo de recrutamento oficial da **Size**. Buscamos membros comprometidos e prontos para somar com nossa equipe.\n\n' +
+                '**📌 Requisitos Básicos:**\n' +
+                '> • Ter microfone de boa qualidade\n' +
+                '> • Respeitar as regras da organização\n' +
+                '> • Disponibilidade e compromisso'
             )
             .setImage(`attachment://${fileName}`)
             .addFields(
                 {
-                    name: '📊 Sobre o Processo',
-                    value: '`📝 Formulário`\n`⚡ Análise Rápida`\n`✅ Retorno Garantido`',
+                    name: '🚀 Como funciona?',
+                    value: '`1.` Clique no botão abaixo para iniciar\n' +
+                           '`2.` Preencha o formulário com seus dados\n' +
+                           '`3.` Aguarde a análise da nossa Staff',
                     inline: false
                 },
                 {
-                    name: '⏱️ Tempo Estimado',
-                    value: '> Aproximadamente **5 minutos**',
+                    name: '⏳ Tempo de Resposta',
+                    value: '> 📥 **Análise:** Até 24h\n> 📬 **Resultado:** Via DM',
                     inline: true
                 },
                 {
-                    name: '📬 Retorno',
-                    value: '> Em até **24 horas**',
+                    name: '🛡️ Segurança',
+                    value: '> 🔒 Dados Protegidos\n> ✅ Sistema Oficial',
                     inline: true
                 }
             )
             .setFooter({
-                text: '🔒 Size Recrutamento  •  Clique no botão para iniciar',
+                text: '© 2026 Size Recruitment System • Qualidade & Compromisso',
                 iconURL: interaction.guild.iconURL({ dynamic: true })
             })
             .setTimestamp();
@@ -70,11 +71,13 @@ module.exports = {
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('size_set_start')
-                .setLabel('🎮  Iniciar Recrutamento')
-                .setStyle(ButtonStyle.Primary),
+                .setLabel('Iniciar Recrutamento')
+                .setEmoji('🎮')
+                .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
                 .setCustomId('size_set_info')
-                .setLabel('ℹ️ Informações')
+                .setLabel('Ver Regras')
+                .setEmoji('📜')
                 .setStyle(ButtonStyle.Secondary)
         );
 
@@ -84,16 +87,15 @@ module.exports = {
             await interaction.reply({
                 embeds: [embed],
                 components: [row],
-                files: [bannerAttachment],
-                // Removido flags: 64 para que a mensagem seja pública
+                files: [bannerAttachment]
             });
         } catch (error) {
             console.error('[set] Erro ao enviar embed de recrutamento:', error);
 
             if (!interaction.replied && !interaction.deferred) {
                 await interaction.reply({
-                    content: '❌ Ocorreu um erro ao abrir o recrutamento. Tente novamente.',
-                    flags: 64
+                    content: '❌ **Erro:** Não foi possível carregar o sistema de recrutamento.',
+                    ephemeral: true
                 });
             }
         }
