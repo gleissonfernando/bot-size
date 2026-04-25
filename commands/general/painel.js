@@ -50,9 +50,9 @@ function loadStats() {
 /** Botões de navegação entre abas */
 function buildTabRow(activeTab) {
   const tabs = [
-    { id: 'tab_stats', label: '📊 Estatísticas' },
-    { id: 'tab_roles', label: '🛡️ Cargos' },
-    { id: 'tab_config', label: '⚙️ Configurações' },
+    { id: 'tab_stats', label: 'Estatísticas', emoji: '📊' },
+    { id: 'tab_roles', label: 'Cargos', emoji: '🛡️' },
+    { id: 'tab_config', label: 'Configurações', emoji: '⚙️' },
   ];
 
   const row = new ActionRowBuilder();
@@ -61,6 +61,7 @@ function buildTabRow(activeTab) {
       new ButtonBuilder()
         .setCustomId(t.id)
         .setLabel(t.label)
+        .setEmoji(t.emoji)
         .setStyle(t.id === activeTab ? ButtonStyle.Primary : ButtonStyle.Secondary),
     );
   }
@@ -70,16 +71,23 @@ function buildTabRow(activeTab) {
 // ── ABA 1 – Estatísticas ──────────────────────────────────────────────────────
 function buildStatsEmbed() {
   const stats = loadStats();
+  const total = stats.pendentes + stats.aprovados + stats.recusados;
+  
   return new EmbedBuilder()
-    .setTitle('📊  Painel de Controle — Estatísticas')
+    .setTitle('📊  Painel de Controle — Central de Estatísticas')
     .setColor(0x5865F2)
-    .setDescription('Acompanhe os sets em tempo real.')
-    .addFields(
-      { name: '🕐 Pendentes', value: `\`\`\`${stats.pendentes}\`\`\``, inline: true },
-      { name: '✅ Aprovados', value: `\`\`\`${stats.aprovados}\`\`\``, inline: true },
-      { name: '❌ Recusados', value: `\`\`\`${stats.recusados}\`\`\``, inline: true },
+    .setThumbnail('https://cdn-icons-png.flaticon.com/512/1162/1162456.png')
+    .setDescription(
+        '### 📈 Resumo Geral\n' +
+        'Acompanhe o desempenho do recrutamento em tempo real.\n\n' +
+        `> **Total de Fichas:** \`${total}\``
     )
-    .setFooter({ text: 'Bot Size • Painel Gerência' })
+    .addFields(
+      { name: '🕐 Pendentes', value: `\`\`\`yaml\n${stats.pendentes}\n\`\`\``, inline: true },
+      { name: '✅ Aprovados', value: `\`\`\`diff\n+ ${stats.aprovados}\n\`\`\``, inline: true },
+      { name: '❌ Recusados', value: `\`\`\`diff\n- ${stats.recusados}\n\`\`\``, inline: true },
+    )
+    .setFooter({ text: 'Size Management System • Monitoramento' })
     .setTimestamp();
 }
 
@@ -89,97 +97,94 @@ function buildRolesEmbed() {
   const roles = config.STAFF_ROLES ?? [];
 
   const desc = roles.length === 0
-    ? '*Nenhum cargo autorizado ainda.*'
-    : roles.map(id => `• <@&${id}>  \`${id}\``).join('\n');
+    ? '⚠️ *Nenhum cargo autorizado foi configurado ainda.*'
+    : roles.map(id => `> 🛡️ <@&${id}> \`(${id})\``).join('\n');
 
   return new EmbedBuilder()
-    .setTitle('🛡️  Painel de Controle — Cargos Autorizados')
+    .setTitle('🛡️  Painel de Controle — Gestão de Acessos')
     .setColor(0xED4245)
-    .setDescription('**Cargos que podem aceitar/recusar sets:**\n\n' + desc)
-    .setFooter({ text: 'Bot Size • Painel Gerência' })
+    .setThumbnail('https://cdn-icons-png.flaticon.com/512/1062/1062630.png')
+    .setDescription(
+        '### 👥 Permissões de Staff\n' +
+        'Os cargos listados abaixo possuem permissão para **Aprovar** ou **Reprovar** recrutamentos.\n\n' + 
+        desc
+    )
+    .setFooter({ text: 'Size Management System • Segurança' })
     .setTimestamp();
 }
 
 function buildRolesRows(config) {
-  const roles = config.STAFF_ROLES ?? [];
-  const rows = [];
-
-  let currentRow = new ActionRowBuilder();
-  let countInRow = 0;
-
-  for (const roleId of roles.slice(0, 20)) {
-    if (countInRow === 5) {
-      rows.push(currentRow);
-      currentRow = new ActionRowBuilder();
-      countInRow = 0;
-    }
-    currentRow.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`remove_role_${roleId}`)
-        .setLabel(`− ${roleId}`)
-        .setStyle(ButtonStyle.Danger),
-    );
-    countInRow++;
-  }
-
-  if (countInRow > 0) rows.push(currentRow);
-
   const manageRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('add_role_btn')
-      .setLabel('+ Adicionar Cargo')
+      .setLabel('Adicionar Cargo')
+      .setEmoji('➕')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('list_roles_btn')
-      .setLabel('📋 Listar Cargos')
+      .setLabel('Lista Detalhada')
+      .setEmoji('📋')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId('remove_role_modal_btn')
-      .setLabel('🗑️ Remover por ID')
+      .setLabel('Remover por ID')
+      .setEmoji('🗑️')
       .setStyle(ButtonStyle.Danger),
   );
-  rows.push(manageRow);
-
-  return rows.slice(0, 5);
+  return [manageRow];
 }
 
 // ── ABA 3 – Configurações ─────────────────────────────────────────────────────
 function buildConfigEmbed() {
   const config = loadConfig();
-  const val = v => (v ? `\`${v}\`` : '`não definido`');
+  const val = v => (v ? `<#${v}> \`(${v})\`` : '`⚠️ não definido`');
+  const valRole = v => (v ? `<@&${v}> \`(${v})\`` : '`⚠️ não definido`');
+  const valCat = v => (v ? `📂 \`${v}\`` : '`⚠️ não definido`');
 
   return new EmbedBuilder()
-    .setTitle('⚙️  Painel de Controle — Configurações')
+    .setTitle('⚙️  Painel de Controle — Configurações Gerais')
     .setColor(0xFEE75C)
-    .setDescription('Clique em **Editar** para alterar cada valor.')
-    .addFields(
-      { name: '📢 Canal de Solicitações', value: val(config.STAFF_CHANNEL_ID), inline: false },
-      { name: '🏠 Cargo Morador', value: val(config.CARGO_MORADOR_ID), inline: true },
-      { name: '👤 Cargo Membro', value: val(config.CARGO_MEMBRO_ID), inline: true },
-      { name: '📁 Categoria dos Canais', value: val(config.CATEGORY_ID), inline: false },
+    .setThumbnail('https://cdn-icons-png.flaticon.com/512/900/900618.png')
+    .setDescription(
+        '### 🛠️ Ajustes do Sistema\n' +
+        'Configure os canais e cargos fundamentais para o funcionamento do bot.\n\n' +
+        `**📢 Canal de Solicitações:**\n> ${val(config.STAFF_CHANNEL_ID)}\n\n` +
+        `**🏠 Cargo Morador:**\n> ${valRole(config.CARGO_MORADOR_ID)}\n\n` +
+        `**👤 Cargo Membro:**\n> ${valRole(config.CARGO_MEMBRO_ID)}\n\n` +
+        `**📁 Categoria dos Canais:**\n> ${valCat(config.CATEGORY_ID)}`
     )
-    .setFooter({ text: 'Bot Size • Painel Gerência' })
+    .setFooter({ text: 'Size Management System • Configurações' })
     .setTimestamp();
 }
 
 function buildConfigRows() {
-  const fields = [
-    { id: 'edit_staff_channel', label: 'Editar Canal de Solicitações' },
-    { id: 'edit_cargo_morador', label: 'Editar Cargo Morador' },
-    { id: 'edit_cargo_membro', label: 'Editar Cargo Membro' },
-    { id: 'edit_category', label: 'Editar Categoria' },
-  ];
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('edit_staff_channel')
+      .setLabel('Canal Staff')
+      .setEmoji('📢')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('edit_cargo_morador')
+      .setLabel('Cargo Morador')
+      .setEmoji('🏠')
+      .setStyle(ButtonStyle.Secondary),
+  );
+  
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('edit_cargo_membro')
+      .setLabel('Cargo Membro')
+      .setEmoji('👤')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('edit_category')
+      .setLabel('Categoria')
+      .setEmoji('📁')
+      .setStyle(ButtonStyle.Secondary),
+  );
 
-  const row = new ActionRowBuilder();
-  for (const f of fields) {
-    row.addComponents(
-      new ButtonBuilder()
-        .setCustomId(f.id)
-        .setLabel(f.label)
-        .setStyle(ButtonStyle.Secondary),
-    );
-  }
-  return [row];
+  return [row1, row2];
 }
 
 // ─── Função central: renderiza a aba ─────────────────────────────────────────
@@ -205,7 +210,6 @@ async function renderTab(interaction, tab, edit = false) {
   if (edit) {
     await interaction.editReply({ embeds: [embed], components });
   } else {
-    // Removido ephemeral: true para que a mensagem seja pública
     await interaction.reply({ embeds: [embed], components });
   }
 }
@@ -223,16 +227,14 @@ module.exports = {
     .setDescription('Abre o painel de controle do bot Size.'),
 
   async execute(interaction) {
-    // Removida a verificação de permissão para permitir visualização por todos
     await renderTab(interaction, 'tab_stats', false);
   },
 
   async handleButton(interaction) {
     const { customId } = interaction;
 
-    // Restrição de interação mantida
     if (!canUsePanel(interaction)) {
-      await interaction.reply({ content: '❌ Você não tem permissão para interagir com este painel.', ephemeral: true });
+      await interaction.reply({ content: '❌ **Acesso Negado:** Apenas a Staff autorizada pode interagir com o painel administrativo.', ephemeral: true });
       return;
     }
 
@@ -249,20 +251,20 @@ module.exports = {
 
       await interaction.deferUpdate();
       await renderTab(interaction, 'tab_roles', true);
-      return interaction.followUp({ content: '✅ Cargo removido da lista.', ephemeral: true });
+      return interaction.followUp({ content: '✅ **Sucesso:** O cargo foi removido das permissões.', ephemeral: true });
     }
 
     if (customId === 'add_role_btn') {
       const modal = new ModalBuilder()
         .setCustomId('modal_add_role')
-        .setTitle('Adicionar Cargo Autorizado');
+        .setTitle('🛡️ Adicionar Cargo Autorizado');
 
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('role_id_input')
-            .setLabel('ID ou menção do cargo')
-            .setPlaceholder('@cargo ou ID numérico')
+            .setLabel('ID ou Menção do Cargo')
+            .setPlaceholder('Ex: 123456789012345678')
             .setStyle(TextInputStyle.Short)
             .setRequired(true),
         ),
@@ -276,14 +278,14 @@ module.exports = {
 
       if (roles.length === 0) {
         return interaction.reply({
-          content: '📋 Nenhum cargo cadastrado no painel.',
+          content: '📋 **Informação:** Não há cargos cadastrados no momento.',
           ephemeral: true
         });
       }
 
-      const listText = roles.map((id, idx) => `${idx + 1}. <@&${id}> (\`${id}\`)`).join('\n');
+      const listText = roles.map((id, idx) => `**${idx + 1}.** <@&${id}> (\`${id}\`)`).join('\n');
       return interaction.reply({
-        content: `📋 **Cargos cadastrados no painel:**\n${listText}`,
+        content: `### 📋 Lista de Cargos Autorizados\n${listText}`,
         ephemeral: true
       });
     }
@@ -291,14 +293,14 @@ module.exports = {
     if (customId === 'remove_role_modal_btn') {
       const modal = new ModalBuilder()
         .setCustomId('modal_remove_role')
-        .setTitle('Remover Cargo Autorizado');
+        .setTitle('🗑️ Remover Cargo Autorizado');
 
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('role_id_remove_input')
-            .setLabel('ID ou menção do cargo')
-            .setPlaceholder('@cargo ou ID numérico')
+            .setLabel('ID do Cargo para Remover')
+            .setPlaceholder('Ex: 123456789012345678')
             .setStyle(TextInputStyle.Short)
             .setRequired(true),
         ),
@@ -308,10 +310,10 @@ module.exports = {
     }
 
     const configModalMap = {
-      edit_staff_channel: { modalId: 'modal_edit_staff_channel', title: 'Canal de Solicitações', label: 'Novo ID do canal', placeholder: 'Ex: 123456789012345678' },
-      edit_cargo_morador: { modalId: 'modal_edit_cargo_morador', title: 'Cargo Morador', label: 'Novo ID do cargo', placeholder: 'Ex: 123456789012345678' },
-      edit_cargo_membro: { modalId: 'modal_edit_cargo_membro', title: 'Cargo Membro', label: 'Novo ID do cargo', placeholder: 'Ex: 123456789012345678' },
-      edit_category: { modalId: 'modal_edit_category', title: 'Categoria dos Canais', label: 'Novo ID da categoria', placeholder: 'Ex: 123456789012345678' },
+      edit_staff_channel: { modalId: 'modal_edit_staff_channel', title: '📢 Canal de Solicitações', label: 'Novo ID do Canal', placeholder: 'Ex: 123456789012345678' },
+      edit_cargo_morador: { modalId: 'modal_edit_cargo_morador', title: '🏠 Cargo Morador', label: 'Novo ID do Cargo', placeholder: 'Ex: 123456789012345678' },
+      edit_cargo_membro: { modalId: 'modal_edit_cargo_membro', title: '👤 Cargo Membro', label: 'Novo ID do Cargo', placeholder: 'Ex: 123456789012345678' },
+      edit_category: { modalId: 'modal_edit_category', title: '📁 Categoria dos Canais', label: 'Novo ID da Categoria', placeholder: 'Ex: 123456789012345678' },
     };
 
     if (configModalMap[customId]) {
@@ -335,7 +337,7 @@ module.exports = {
     const { customId, fields } = interaction;
 
     if (!canUsePanel(interaction)) {
-      await interaction.reply({ content: '❌ Você não tem permissão para realizar esta ação.', ephemeral: true });
+      await interaction.reply({ content: '❌ **Erro:** Você não tem permissão para realizar esta ação.', ephemeral: true });
       return;
     }
 
