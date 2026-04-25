@@ -16,7 +16,12 @@ const config = require('../config/config');
 const CATEGORIA_ID       = '1497388763054342244';
 const CARGO_APROVADO     = '1490151003864043570';
 const CARGO_FORMULARIO   = '1497394597746315355';
-const CANAL_COMANDOS_ID  = '1497368376920772628';
+
+// Canais autorizados para os comandos /set e /painel
+const CANAIS_AUTORIZADOS = [
+    '1497421574108745728',
+    '1497368376920772628'
+];
 
 module.exports = {
     name: 'interactionCreate',
@@ -25,16 +30,15 @@ module.exports = {
         // ─── Comando slash ───────────────────────────────────────
         if (interaction.isChatInputCommand()) {
             const restrictedCommands = new Set(['set', 'painel']);
-            // Removida a restrição de canal para permitir que os comandos sejam usados em qualquer lugar (público)
-            /*
-            if (restrictedCommands.has(interaction.commandName) && interaction.channelId !== CANAL_COMANDOS_ID) {
+            
+            // Verifica se o comando está na lista de restritos e se o canal é autorizado
+            if (restrictedCommands.has(interaction.commandName) && !CANAIS_AUTORIZADOS.includes(interaction.channelId)) {
                 await interaction.reply({
-                    content: '❌ Este comando só pode ser usado no canal autorizado.',
+                    content: `❌ Este comando só pode ser utilizado nos canais de comandos autorizados: <#${CANAIS_AUTORIZADOS[0]}> ou <#${CANAIS_AUTORIZADOS[1]}>.`,
                     ephemeral: true
                 });
                 return;
             }
-            */
 
             const command = interaction.client.commands.get(interaction.commandName);
             if (!command) return;
@@ -80,7 +84,7 @@ module.exports = {
             }
         }
 
-        // ─── Botão: abrir modal ──────────────────────────────────
+        // ─── Botão: abrir modal (Recrutamento) ───────────────────
         if (interaction.isButton() && interaction.customId === 'size_set_start') {
             const modal = new ModalBuilder()
                 .setCustomId('size_modal_form')
@@ -239,7 +243,7 @@ module.exports = {
         if (interaction.isButton() && interaction.customId.startsWith('aprovar_')) {
             if (!isGerencia(interaction)) {
                 await interaction.reply({
-                    content: '❌ Você não está cadastrado no sistema.',
+                    content: '❌ Você não tem permissão para realizar esta ação.',
                     ephemeral: true
                 });
                 return;
@@ -250,14 +254,10 @@ module.exports = {
 
             await interaction.deferUpdate();
 
-            // Atualiza cargos na aprovação:
-            // - remove cargo de formulário
-            // - adiciona cargo de aprovado
             if (membro) {
                 try { await membro.roles.remove(CARGO_FORMULARIO); } catch {}
                 try { await membro.roles.add(CARGO_APROVADO); } catch {}
 
-                // Manda DM de aprovação
                 try {
                     const dmAprovado = new EmbedBuilder()
                         .setColor('#57F287')
@@ -274,7 +274,6 @@ module.exports = {
                 } catch {}
             }
 
-            // Atualiza o embed do canal
             const embedAprovado = new EmbedBuilder()
                 .setColor('#57F287')
                 .setTitle('✅  Ficha Aprovada')
@@ -286,7 +285,6 @@ module.exports = {
                 .setTimestamp();
 
             await interaction.message.edit({ embeds: [embedAprovado], components: [] });
-
             return;
         }
 
@@ -294,7 +292,7 @@ module.exports = {
         if (interaction.isButton() && interaction.customId.startsWith('reprovar_')) {
             if (!isGerencia(interaction)) {
                 await interaction.reply({
-                    content: '❌ Você não está cadastrado no sistema.',
+                    content: '❌ Você não tem permissão para realizar esta ação.',
                     ephemeral: true
                 });
                 return;
@@ -305,11 +303,9 @@ module.exports = {
 
             await interaction.deferUpdate();
 
-            // Na reprovação, remove o cargo de formulário
             if (membro) {
                 try { await membro.roles.remove(CARGO_FORMULARIO); } catch {}
                 
-                // Manda DM de reprovação
                 try {
                     const dmReprovado = new EmbedBuilder()
                         .setColor('#ED4245')
@@ -326,7 +322,6 @@ module.exports = {
                 } catch {}
             }
 
-            // Atualiza o embed do canal
             const embedReprovado = new EmbedBuilder()
                 .setColor('#ED4245')
                 .setTitle('❌  Ficha Reprovada')
@@ -339,7 +334,6 @@ module.exports = {
 
             await interaction.message.edit({ embeds: [embedReprovado], components: [] });
 
-            // Deleta o canal da ficha após 5 segundos (fluxo robusto)
             setTimeout(async () => {
                 try {
                     const channelToDelete = interaction.channel;
