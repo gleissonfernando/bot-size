@@ -147,6 +147,11 @@ const registerCommands = async () => {
 
 client.once('ready', async () => {
     logger.info(`Bot conectado como ${client.user.tag}`);
+    logger.info('Reinício concluído com sucesso', {
+        pid: process.pid,
+        uptimeMs: getUptimeMs(),
+        startedAt: new Date(processStartTime).toISOString()
+    });
     await registerCommands();
 });
 
@@ -243,8 +248,45 @@ process.on('unhandledRejection', (reason, promise) => {
     logger.error('Promise rejeitada não tratada', new Error(String(reason)), { promise: String(promise) });
 });
 
+process.on('beforeExit', (code) => {
+    logger.warn('Processo entrando em beforeExit', {
+        code,
+        pid: process.pid,
+        uptimeMs: getUptimeMs()
+    });
+});
+
+process.on('exit', (code) => {
+    logger.warn('Processo finalizado (exit)', {
+        code,
+        pid: process.pid,
+        uptimeMs: getUptimeMs()
+    });
+});
+
+process.on('SIGINT', () => {
+    logger.warn('Sinal SIGINT recebido - encerrando aplicação', {
+        signal: 'SIGINT',
+        pid: process.pid,
+        uptimeMs: getUptimeMs()
+    });
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    logger.warn('Sinal SIGTERM recebido - encerrando aplicação', {
+        signal: 'SIGTERM',
+        pid: process.pid,
+        uptimeMs: getUptimeMs()
+    });
+    process.exit(0);
+});
+
 process.on('uncaughtException', (error) => {
-    logger.critical('Exceção não capturada', error);
+    logger.critical('Exceção não capturada', error, {
+        pid: process.pid,
+        uptimeMs: getUptimeMs()
+    });
     process.exit(1);
 });
 

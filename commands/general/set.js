@@ -6,15 +6,28 @@ const {
     ButtonStyle,
     AttachmentBuilder
 } = require('discord.js');
+const path = require('path');
+const fs = require('fs');
 const { isRegisteredUser, denyNotRegistered } = require('../../utils/permissions');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('set')
         .setDescription('🎯 Abre o sistema de recrutamento Size'),
+
     async execute(interaction) {
         if (!isRegisteredUser(interaction)) {
             await denyNotRegistered(interaction);
+            return;
+        }
+
+        const bannerPath = path.join(__dirname, '../../foto/IMG_4234.png');
+
+        if (!fs.existsSync(bannerPath)) {
+            await interaction.reply({
+                content: '❌ Banner não encontrado. Contate um administrador.',
+                flags: 64
+            });
             return;
         }
 
@@ -36,7 +49,7 @@ module.exports = {
             .addFields(
                 {
                     name: '📊 Sobre o Processo',
-                    value: '`📝 Formulário`  `⚡ Análise Rápida`  `✅ Retorno Garantido`',
+                    value: '`📝 Formulário`\n`⚡ Análise Rápida`\n`✅ Retorno Garantido`',
                     inline: false
                 },
                 {
@@ -63,17 +76,28 @@ module.exports = {
                 .setStyle(ButtonStyle.Primary),
             new ButtonBuilder()
                 .setCustomId('size_set_info')
-                .setLabel('ℹ️  Saiba Mais')
+                .setLabel('ℹ️ Informações')
                 .setStyle(ButtonStyle.Secondary)
         );
 
-        const bannerAttachment = new AttachmentBuilder('foto/IMG_4234.png');
+        const bannerAttachment = new AttachmentBuilder(bannerPath);
 
-        await interaction.reply({
-            embeds: [embed],
-            components: [row],
-            files: [bannerAttachment],
-            ephemeral: true
-        });
+        try {
+            await interaction.reply({
+                embeds: [embed],
+                components: [row],
+                files: [bannerAttachment],
+                flags: 64
+            });
+        } catch (error) {
+            console.error('[set] Erro ao enviar embed de recrutamento:', error);
+
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({
+                    content: '❌ Ocorreu um erro ao abrir o recrutamento. Tente novamente.',
+                    flags: 64
+                });
+            }
+        }
     }
 };
