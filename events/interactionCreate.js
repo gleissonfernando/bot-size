@@ -17,7 +17,6 @@ const CATEGORIA_ID       = '1497388763054342244';
 const CARGO_APROVADO     = '1490151003864043570';
 const CARGO_FORMULARIO   = '1497394597746315355';
 
-// Canais autorizados para os comandos /set e /painel
 const CANAIS_AUTORIZADOS = [
     '1497421574108745728',
     '1497368376920772628'
@@ -27,11 +26,9 @@ module.exports = {
     name: 'interactionCreate',
     async execute(interaction) {
 
-        // ─── Comando slash ───────────────────────────────────────
         if (interaction.isChatInputCommand()) {
             const restrictedCommands = new Set(['set', 'painel']);
             
-            // Verifica se o comando está na lista de restritos e se o canal é autorizado
             if (restrictedCommands.has(interaction.commandName) && !CANAIS_AUTORIZADOS.includes(interaction.channelId)) {
                 await interaction.reply({
                     content: `❌ Este comando só pode ser utilizado nos canais de comandos autorizados: <#${CANAIS_AUTORIZADOS[0]}> ou <#${CANAIS_AUTORIZADOS[1]}>.`,
@@ -46,33 +43,33 @@ module.exports = {
             return;
         }
 
-        // ─── Botões/Modais do painel ─────────────────────────────
         const painelCommand = interaction.client.commands.get('painel');
 
+        // Lida com Botões do Painel
         if (interaction.isButton() && painelCommand && typeof painelCommand.handleButton === 'function') {
             const painelButtonIds = [
                 'tab_stats',
                 'tab_roles',
                 'tab_config',
                 'add_role_btn',
+                'list_roles_btn',
+                'remove_role_modal_btn',
                 'edit_staff_channel',
                 'edit_cargo_morador',
                 'edit_cargo_membro',
                 'edit_category'
             ];
-            const isPainelButton =
-                painelButtonIds.includes(interaction.customId) ||
-                interaction.customId.startsWith('remove_role_');
-
-            if (isPainelButton) {
+            if (painelButtonIds.includes(interaction.customId)) {
                 await painelCommand.handleButton(interaction);
                 return;
             }
         }
 
+        // Lida com Modais do Painel
         if (interaction.isModalSubmit() && painelCommand && typeof painelCommand.handleModal === 'function') {
             const painelModalIds = [
                 'modal_add_role',
+                'modal_remove_role',
                 'modal_edit_staff_channel',
                 'modal_edit_cargo_morador',
                 'modal_edit_cargo_membro',
@@ -84,7 +81,14 @@ module.exports = {
             }
         }
 
-        // ─── Botão: abrir modal (Recrutamento) ───────────────────
+        // Lida com Select Menus do Painel
+        if (interaction.isStringSelectMenu() && painelCommand && typeof painelCommand.handleSelectMenu === 'function') {
+            if (interaction.customId === 'remove_role_select') {
+                await painelCommand.handleSelectMenu(interaction);
+                return;
+            }
+        }
+
         if (interaction.isButton() && interaction.customId === 'size_set_start') {
             const modal = new ModalBuilder()
                 .setCustomId('size_modal_form')
@@ -126,29 +130,9 @@ module.exports = {
             );
 
             await interaction.showModal(modal);
-
-            try {
-                const logsChannel = await interaction.guild.channels.fetch(config.logsChannelId).catch(() => null);
-                if (logsChannel && logsChannel.isTextBased()) {
-                    const embedLogAbertura = new EmbedBuilder()
-                        .setColor('#5865F2')
-                        .setTitle('📝 Formulário aberto')
-                        .setDescription('Um usuário abriu o formulário de recrutamento.')
-                        .addFields(
-                            { name: 'Usuário', value: `<@${interaction.user.id}> (\`${interaction.user.id}\`)`, inline: true },
-                            { name: 'Canal', value: `<#${interaction.channelId}>`, inline: true },
-                            { name: 'Ação', value: 'Clique no botão **Iniciar Recrutamento**', inline: false }
-                        )
-                        .setTimestamp();
-
-                    await logsChannel.send({ embeds: [embedLogAbertura] });
-                }
-            } catch {}
-
             return;
         }
 
-        // ─── Modal: receber respostas ────────────────────────────
         if (interaction.isModalSubmit() && interaction.customId === 'size_modal_form') {
             const nome      = interaction.fields.getTextInputValue('campo_nome');
             const id        = interaction.fields.getTextInputValue('campo_id');
@@ -159,25 +143,19 @@ module.exports = {
 
             await interaction.deferReply({ ephemeral: true });
 
-            // 1. Renomeia o usuário
             try { await membro.setNickname(novoNick); } catch {}
-
-            // 2. Dá o cargo de formulário enviado
             try { await membro.roles.add(CARGO_FORMULARIO); } catch {}
 
-            // 3. Cria o canal privado na categoria
             const canal = await interaction.guild.channels.create({
                 name: `📋・${id}-${nome}`.toLowerCase(),
                 type: ChannelType.GuildText,
                 parent: CATEGORIA_ID,
                 permissionOverwrites: [
                     {
-                        // Nega para @everyone
                         id: interaction.guild.roles.everyone.id,
                         deny: [PermissionFlagsBits.ViewChannel]
                     },
                     {
-                        // Permite só para o usuário pelo ID dele
                         id: membro.id,
                         allow: [
                             PermissionFlagsBits.ViewChannel,
@@ -186,7 +164,6 @@ module.exports = {
                         ]
                     },
                     {
-                        // Permite para o bot
                         id: interaction.client.user.id,
                         allow: [
                             PermissionFlagsBits.ViewChannel,
@@ -198,7 +175,6 @@ module.exports = {
                 ]
             });
 
-            // 4. Embed com os dados no canal criado
             const embedFicha = new EmbedBuilder()
                 .setColor('#5865F2')
                 .setAuthor({
@@ -231,7 +207,6 @@ module.exports = {
 
             await canal.send({ embeds: [embedFicha], components: [rowDecisao] });
 
-            // 5. Confirmação para o usuário
             await interaction.editReply({
                 content: `✅ Sua ficha foi enviada com sucesso! Aguarde a análise da staff.`
             });
@@ -239,13 +214,9 @@ module.exports = {
             return;
         }
 
-        // ─── Botão: Aprovar ──────────────────────────────────────
         if (interaction.isButton() && interaction.customId.startsWith('aprovar_')) {
             if (!isGerencia(interaction)) {
-                await interaction.reply({
-                    content: '❌ Você não tem permissão para realizar esta ação.',
-                    ephemeral: true
-                });
+                await interaction.reply({ content: '❌ Sem permissão.', ephemeral: true });
                 return;
             }
 
@@ -262,14 +233,9 @@ module.exports = {
                     const dmAprovado = new EmbedBuilder()
                         .setColor('#57F287')
                         .setTitle('✅  Parabéns! Você foi aprovado!')
-                        .setDescription(
-                            `Olá, **${membro.displayName}**! 🎉\n\n` +
-                            `Sua ficha foi **aprovada** pela staff da **Size**.\n` +
-                            `Bem-vindo(a) ao grupo! O cargo foi adicionado automaticamente.`
-                        )
+                        .setDescription(`Olá, **${membro.displayName}**! Sua ficha foi **aprovada** pela staff da **Size**.`)
                         .setFooter({ text: 'Size Recrutamento' })
                         .setTimestamp();
-
                     await membro.send({ embeds: [dmAprovado] });
                 } catch {}
             }
@@ -277,24 +243,16 @@ module.exports = {
             const embedAprovado = new EmbedBuilder()
                 .setColor('#57F287')
                 .setTitle('✅  Ficha Aprovada')
-                .setDescription(
-                    `> <@${membroId}> foi **aprovado(a)** por <@${interaction.user.id}>.\n` +
-                    `> Cargo de formulário removido e cargo final concedido automaticamente.`
-                )
-                .setFooter({ text: 'Size Recrutamento' })
+                .setDescription(`<@${membroId}> foi aprovado(a) por <@${interaction.user.id}>.`)
                 .setTimestamp();
 
             await interaction.message.edit({ embeds: [embedAprovado], components: [] });
             return;
         }
 
-        // ─── Botão: Reprovar ─────────────────────────────────────
         if (interaction.isButton() && interaction.customId.startsWith('reprovar_')) {
             if (!isGerencia(interaction)) {
-                await interaction.reply({
-                    content: '❌ Você não tem permissão para realizar esta ação.',
-                    ephemeral: true
-                });
+                await interaction.reply({ content: '❌ Sem permissão.', ephemeral: true });
                 return;
             }
 
@@ -305,19 +263,13 @@ module.exports = {
 
             if (membro) {
                 try { await membro.roles.remove(CARGO_FORMULARIO); } catch {}
-                
                 try {
                     const dmReprovado = new EmbedBuilder()
                         .setColor('#ED4245')
                         .setTitle('❌  Sua ficha foi reprovada')
-                        .setDescription(
-                            `Olá, **${membro.displayName}**.\n\n` +
-                            `Infelizmente sua ficha foi **reprovada** pela staff da **Size**.\n` +
-                            `Você poderá tentar novamente no futuro. Obrigado pelo interesse!`
-                        )
+                        .setDescription(`Olá, **${membro.displayName}**. Sua ficha foi **reprovada** pela staff da **Size**.`)
                         .setFooter({ text: 'Size Recrutamento' })
                         .setTimestamp();
-
                     await membro.send({ embeds: [dmReprovado] });
                 } catch {}
             }
@@ -325,21 +277,13 @@ module.exports = {
             const embedReprovado = new EmbedBuilder()
                 .setColor('#ED4245')
                 .setTitle('❌  Ficha Reprovada')
-                .setDescription(
-                    `> <@${membroId}> foi **reprovado(a)** por <@${interaction.user.id}>.\n` +
-                    `> Cargo de formulário removido e DM enviada ao candidato.`
-                )
-                .setFooter({ text: 'Size Recrutamento' })
+                .setDescription(`<@${membroId}> foi reprovado(a) por <@${interaction.user.id}>.`)
                 .setTimestamp();
 
             await interaction.message.edit({ embeds: [embedReprovado], components: [] });
 
             setTimeout(async () => {
-                try {
-                    const channelToDelete = interaction.channel;
-                    if (!channelToDelete || !channelToDelete.deletable) return;
-                    await channelToDelete.delete('Ficha reprovada - limpeza automática');
-                } catch {}
+                try { await interaction.channel.delete(); } catch {}
             }, 5000);
 
             return;

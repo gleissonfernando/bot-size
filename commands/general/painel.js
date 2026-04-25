@@ -7,10 +7,12 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { isRegisteredUser, isGerencia, denyNotRegistered } = require('../../utils/permissions');
+const { isRegisteredUser, isGerencia } = require('../../utils/permissions');
 
 // ─── Caminhos dos arquivos de configuração ────────────────────────────────────
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
@@ -47,7 +49,6 @@ function loadStats() {
 
 // ─── Builders de cada aba ─────────────────────────────────────────────────────
 
-/** Botões de navegação entre abas */
 function buildTabRow(activeTab) {
   const tabs = [
     { id: 'tab_stats', label: 'Estatísticas', emoji: '📊' },
@@ -68,7 +69,6 @@ function buildTabRow(activeTab) {
   return row;
 }
 
-// ── ABA 1 – Estatísticas ──────────────────────────────────────────────────────
 function buildStatsEmbed() {
   const stats = loadStats();
   const total = stats.pendentes + stats.aprovados + stats.recusados;
@@ -91,7 +91,6 @@ function buildStatsEmbed() {
     .setTimestamp();
 }
 
-// ── ABA 2 – Cargos Autorizados ────────────────────────────────────────────────
 function buildRolesEmbed() {
   const config = loadConfig();
   const roles = config.STAFF_ROLES ?? [];
@@ -122,7 +121,7 @@ function buildRolesRows() {
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('list_roles_btn')
-      .setLabel('Lista Detalhada')
+      .setLabel('Lista & Remover')
       .setEmoji('📋')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
@@ -134,7 +133,6 @@ function buildRolesRows() {
   return [manageRow];
 }
 
-// ── ABA 3 – Configurações ─────────────────────────────────────────────────────
 function buildConfigEmbed() {
   const config = loadConfig();
   const val = v => (v ? `<#${v}> \`(${v})\`` : '`⚠️ não definido`');
@@ -187,7 +185,6 @@ function buildConfigRows() {
   return [row1, row2];
 }
 
-// ─── Função central: renderiza a aba ─────────────────────────────────────────
 async function renderTab(interaction, tab, edit = false) {
   const config = loadConfig();
   let embed;
@@ -219,26 +216,21 @@ async function renderTab(interaction, tab, edit = false) {
 }
 
 function canUsePanel(interaction) {
-  if (!isRegisteredUser(interaction)) return false;
-  if (!isGerencia(interaction)) return false;
-  return true;
+  return isGerencia(interaction);
 }
 
-// ─── Definição do Slash Command ───────────────────────────────────────────────
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('painel')
     .setDescription('Abre o painel de controle do bot Size.'),
 
   async execute(interaction) {
-    // Todos podem ver a aba de estatísticas por padrão
     await renderTab(interaction, 'tab_stats', false);
   },
 
   async handleButton(interaction) {
     const { customId } = interaction;
 
-    // Proteção de acesso para interações
     if (!canUsePanel(interaction)) {
       await interaction.reply({ 
         content: '❌ **Acesso Negado:** Apenas a Staff autorizada pode interagir com os controles administrativos.', 
@@ -247,13 +239,11 @@ module.exports = {
       return;
     }
 
-    // Navegação entre abas
     if (['tab_stats', 'tab_roles', 'tab_config'].includes(customId)) {
       await interaction.deferUpdate();
       return renderTab(interaction, customId, true);
     }
 
-    // Ações da aba de Cargos
     if (customId === 'add_role_btn') {
       const modal = new ModalBuilder()
         .setCustomId('modal_add_role')
@@ -283,9 +273,31 @@ module.exports = {
         });
       }
 
-      const listText = roles.map((id, idx) => `**${idx + 1}.** <@&${id}> (\`${id}\`)`).join('\n');
+      // Cria o menu de seleção para remover cargos
+      const select = new StringSelectMenuBuilder()
+        .setCustomId('remove_role_select')
+        .setPlaceholder('Selecione um cargo para remover...')
+        .setMinValues(1)
+        .setMaxValues(1);
+
+      // Adiciona cada cargo como uma opção
+      for (const id of roles) {
+        const role = interaction.guild.roles.cache.get(id);
+        const label = role ? role.name : `Cargo ID: ${id}`;
+        select.addOptions(
+          new StringSelectMenuOptionBuilder()
+            .setLabel(label)
+            .setDescription(`Remover permissões do cargo ${id}`)
+            .setValue(id)
+            .setEmoji('🗑️')
+        );
+      }
+
+      const row = new ActionRowBuilder().addComponents(select);
+
       return interaction.reply({
-        content: `### 📋 Lista de Cargos Autorizados\n${listText}`,
+        content: '### 📋 Lista Interativa de Cargos\nSelecione um cargo no menu abaixo para **removê-lo** instantaneamente.',
+        components: [row],
         ephemeral: true
       });
     }
@@ -308,7 +320,6 @@ module.exports = {
       return interaction.showModal(modal);
     }
 
-    // Ações da aba de Configurações
     const configModalMap = {
       edit_staff_channel: { modalId: 'modal_edit_staff_channel', title: '📢 Canal de Solicitações', label: 'Novo ID do Canal', placeholder: 'Ex: 1497368376920772628' },
       edit_cargo_morador: { modalId: 'modal_edit_cargo_morador', title: '🏠 Cargo Morador', label: 'Novo ID do Cargo', placeholder: 'Ex: 1490151003864043570' },
@@ -333,6 +344,29 @@ module.exports = {
     }
   },
 
+  async handleSelectMenu(interaction) {
+    if (interaction.customId === 'remove_role_select') {
+      if (!canUsePanel(interaction)) {
+        return interaction.reply({ content: '❌ Você não tem permissão.', ephemeral: true });
+      }
+
+      const roleId = interaction.values[0];
+      const config = loadConfig();
+      
+      config.STAFF_ROLES = (config.STAFF_ROLES ?? []).filter(r => r !== roleId);
+      saveConfig(config);
+
+      await interaction.update({
+        content: `✅ **Sucesso:** O cargo <@&${roleId}> foi removido das permissões.`,
+        components: [],
+        ephemeral: true
+      });
+      
+      // Opcional: Atualizar o painel original se ele ainda estiver visível
+      // Nota: interaction.message refere-se à mensagem da lista, não ao painel principal.
+    }
+  },
+
   async handleModal(interaction) {
     const { customId, fields } = interaction;
 
@@ -343,7 +377,6 @@ module.exports = {
 
     const config = loadConfig();
 
-    // Lógica para Adicionar Cargo
     if (customId === 'modal_add_role') {
       let roleId = fields.getTextInputValue('role_id_input').replace(/[<@&>]/g, '').trim();
       
@@ -363,7 +396,6 @@ module.exports = {
       }
     }
 
-    // Lógica para Remover Cargo
     if (customId === 'modal_remove_role') {
       let roleId = fields.getTextInputValue('role_id_remove_input').replace(/[<@&>]/g, '').trim();
       
@@ -378,7 +410,6 @@ module.exports = {
       return interaction.followUp({ content: '✅ **Sucesso:** O cargo foi removido das permissões.', ephemeral: true });
     }
 
-    // Lógica para Configurações Gerais
     const configUpdateMap = {
       modal_edit_staff_channel: 'STAFF_CHANNEL_ID',
       modal_edit_cargo_morador: 'CARGO_MORADOR_ID',
