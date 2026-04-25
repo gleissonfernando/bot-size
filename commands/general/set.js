@@ -21,11 +21,13 @@ module.exports = {
             return;
         }
 
-        const bannerPath = path.join(__dirname, '../../foto/IMG_4234.png');
+        // Nome real do arquivo na pasta foto
+        const fileName = 'IMG_4234-fotor-bg-remover-20260424232155.png';
+        const bannerPath = path.join(__dirname, '../../foto/', fileName);
 
         if (!fs.existsSync(bannerPath)) {
             await interaction.reply({
-                content: '❌ Banner não encontrado. Contate um administrador.',
+                content: `❌ Banner não encontrado (${fileName}). Contate um administrador.`,
                 flags: 64
             });
             return;
@@ -45,7 +47,7 @@ module.exports = {
                 '🔹 O processo é rápido e totalmente online\n' +
                 '🔹 Nossa equipe analisará sua ficha em breve'
             )
-            .setImage('attachment://IMG_4234.png')
+            .setImage(`attachment://${fileName}`)
             .addFields(
                 {
                     name: '📊 Sobre o Processo',
