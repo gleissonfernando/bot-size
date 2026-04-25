@@ -3,23 +3,31 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
-const ERROR_LOG_CHANNEL_ID = '761011766440230932';
+// Canal de Log Principal solicitado pelo usuário
+const ERROR_LOG_CHANNEL_ID = '761011766440230932'; 
 const ERROR_ROLE_ID = '1497405005802635374';
 const NOTIFY_USERS = ['1426287249020158018', '761011766440230932'];
 
 function loadConfig() {
-    if (fs.existsSync(CONFIG_PATH)) {
-        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    try {
+        if (fs.existsSync(CONFIG_PATH)) {
+            const data = fs.readFileSync(CONFIG_PATH, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (err) {
+        console.error('Erro ao ler config.json:', err);
     }
     return { STAFF_CHANNEL_ID: '' };
 }
 
 /**
- * Envia um log para o canal de staff configurado
+ * Envia um log para o canal de staff configurado no painel ou canal padrão
  */
 async function sendStaffLog(client, title, description, color = '#5865F2', fields = []) {
     const config = loadConfig();
-    const logChannelId = config.STAFF_CHANNEL_ID;
+    // Prioriza o canal de log principal do usuário, se não houver, tenta o do painel
+    const logChannelId = ERROR_LOG_CHANNEL_ID || config.STAFF_CHANNEL_ID;
+    
     if (!logChannelId) return;
 
     try {
@@ -35,6 +43,8 @@ async function sendStaffLog(client, title, description, color = '#5865F2', field
             if (fields.length > 0) embed.addFields(fields);
             
             await channel.send({ embeds: [embed] });
+        } else {
+            console.error(`Canal de log não encontrado: ${logChannelId}`);
         }
     } catch (err) {
         console.error('Erro ao enviar log de staff:', err);
@@ -56,6 +66,8 @@ async function sendUpdateLog(client, title, description, color = '#3498DB') {
                 .setTimestamp();
             
             await channel.send({ embeds: [embed] });
+        } else {
+            console.error(`Canal de atualização não encontrado: ${ERROR_LOG_CHANNEL_ID}`);
         }
     } catch (err) {
         console.error('Erro ao enviar log de atualização:', err);
@@ -67,8 +79,10 @@ async function sendUpdateLog(client, title, description, color = '#3498DB') {
  */
 async function notifyError(client, error, context = '') {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : 'N/A';
+    const errorStack = (error instanceof Error && error.stack) ? error.stack : 'N/A';
     
+    console.error(`[ERRO CRÍTICO] ${context}: ${errorMessage}`);
+
     // 1. Enviar para o canal de log com marcação de cargo
     try {
         const channel = await client.channels.fetch(ERROR_LOG_CHANNEL_ID).catch(() => null);
@@ -92,6 +106,9 @@ async function notifyError(client, error, context = '') {
     // 2. Enviar DM para os usuários especificados
     for (const userId of NOTIFY_USERS) {
         try {
+            // Ignora se o ID for o mesmo do canal (caso o usuário tenha passado o ID do canal na lista de usuários)
+            if (userId === ERROR_LOG_CHANNEL_ID) continue;
+
             const user = await client.users.fetch(userId).catch(() => null);
             if (user) {
                 const dmEmbed = new EmbedBuilder()

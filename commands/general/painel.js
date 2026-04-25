@@ -21,31 +21,45 @@ const STATS_PATH = path.join(__dirname, '..', 'stats.json');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function loadConfig() {
-  if (!fs.existsSync(CONFIG_PATH)) {
-    const defaults = {
-      STAFF_ROLES: [],
-      STAFF_CHANNEL_ID: '',
-      CARGO_MORADOR_ID: '',
-      CARGO_MEMBRO_ID: '',
-      CATEGORY_ID: '',
-    };
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(defaults, null, 2));
-    return defaults;
+  try {
+    if (!fs.existsSync(CONFIG_PATH)) {
+      const defaults = {
+        STAFF_ROLES: [],
+        STAFF_CHANNEL_ID: '',
+        CARGO_MORADOR_ID: '',
+        CARGO_MEMBRO_ID: '',
+        CATEGORY_ID: '',
+      };
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(defaults, null, 2));
+      return defaults;
+    }
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  } catch (err) {
+    console.error('Erro ao carregar config:', err);
+    return { STAFF_ROLES: [], STAFF_CHANNEL_ID: '', CARGO_MORADOR_ID: '', CARGO_MEMBRO_ID: '', CATEGORY_ID: '' };
   }
-  return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 }
 
 function saveConfig(data) {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2));
+  try {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error('Erro ao salvar config:', err);
+  }
 }
 
 function loadStats() {
-  if (!fs.existsSync(STATS_PATH)) {
-    const defaults = { pendentes: 0, aprovados: 0, recusados: 0 };
-    fs.writeFileSync(STATS_PATH, JSON.stringify(defaults, null, 2));
-    return defaults;
+  try {
+    if (!fs.existsSync(STATS_PATH)) {
+      const defaults = { pendentes: 0, aprovados: 0, recusados: 0 };
+      fs.writeFileSync(STATS_PATH, JSON.stringify(defaults, null, 2));
+      return defaults;
+    }
+    return JSON.parse(fs.readFileSync(STATS_PATH, 'utf8'));
+  } catch (err) {
+    console.error('Erro ao carregar stats:', err);
+    return { pendentes: 0, aprovados: 0, recusados: 0 };
   }
-  return JSON.parse(fs.readFileSync(STATS_PATH, 'utf8'));
 }
 
 // ─── Builders de cada aba ─────────────────────────────────────────────────────
