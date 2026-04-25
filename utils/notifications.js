@@ -3,10 +3,12 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
-// Canal de Log Principal solicitado pelo usuário
-const ERROR_LOG_CHANNEL_ID = '761011766440230932'; 
+
+// IDs atualizados conforme solicitação do usuário
+const ERROR_LOG_CHANNEL_ID = '1497380031016599603'; // Canal das Logs
+const UPDATE_LOG_CHANNEL_ID = '761011766440230932'; // Canal de Atualizações (conforme solicitado anteriormente)
 const ERROR_ROLE_ID = '1497405005802635374';
-const NOTIFY_USERS = ['1426287249020158018', '761011766440230932'];
+const NOTIFY_USERS = ['761011766440230932', '1426287249020158018']; // DMs dos Devs
 
 function loadConfig() {
     try {
@@ -21,17 +23,11 @@ function loadConfig() {
 }
 
 /**
- * Envia um log para o canal de staff configurado no painel ou canal padrão
+ * Envia um log para o canal de logs principal
  */
 async function sendStaffLog(client, title, description, color = '#5865F2', fields = []) {
-    const config = loadConfig();
-    // Prioriza o canal de log principal do usuário, se não houver, tenta o do painel
-    const logChannelId = ERROR_LOG_CHANNEL_ID || config.STAFF_CHANNEL_ID;
-    
-    if (!logChannelId) return;
-
     try {
-        const channel = await client.channels.fetch(logChannelId).catch(() => null);
+        const channel = await client.channels.fetch(ERROR_LOG_CHANNEL_ID).catch(() => null);
         if (channel) {
             const embed = new EmbedBuilder()
                 .setColor(color)
@@ -43,8 +39,6 @@ async function sendStaffLog(client, title, description, color = '#5865F2', field
             if (fields.length > 0) embed.addFields(fields);
             
             await channel.send({ embeds: [embed] });
-        } else {
-            console.error(`Canal de log não encontrado: ${logChannelId}`);
         }
     } catch (err) {
         console.error('Erro ao enviar log de staff:', err);
@@ -52,11 +46,11 @@ async function sendStaffLog(client, title, description, color = '#5865F2', field
 }
 
 /**
- * Envia um log de atualização para o canal específico
+ * Envia um log de atualização para o canal específico de atualizações
  */
 async function sendUpdateLog(client, title, description, color = '#3498DB') {
     try {
-        const channel = await client.channels.fetch(ERROR_LOG_CHANNEL_ID).catch(() => null);
+        const channel = await client.channels.fetch(UPDATE_LOG_CHANNEL_ID).catch(() => null);
         if (channel) {
             const embed = new EmbedBuilder()
                 .setColor(color)
@@ -66,8 +60,6 @@ async function sendUpdateLog(client, title, description, color = '#3498DB') {
                 .setTimestamp();
             
             await channel.send({ embeds: [embed] });
-        } else {
-            console.error(`Canal de atualização não encontrado: ${ERROR_LOG_CHANNEL_ID}`);
         }
     } catch (err) {
         console.error('Erro ao enviar log de atualização:', err);
@@ -83,7 +75,7 @@ async function notifyError(client, error, context = '') {
     
     console.error(`[ERRO CRÍTICO] ${context}: ${errorMessage}`);
 
-    // 1. Enviar para o canal de log com marcação de cargo
+    // 1. Enviar para o canal de log principal com marcação de cargo
     try {
         const channel = await client.channels.fetch(ERROR_LOG_CHANNEL_ID).catch(() => null);
         if (channel) {
@@ -103,12 +95,9 @@ async function notifyError(client, error, context = '') {
         console.error('Erro ao enviar notificação de erro no canal:', err);
     }
 
-    // 2. Enviar DM para os usuários especificados
+    // 2. Enviar DM para os desenvolvedores
     for (const userId of NOTIFY_USERS) {
         try {
-            // Ignora se o ID for o mesmo do canal (caso o usuário tenha passado o ID do canal na lista de usuários)
-            if (userId === ERROR_LOG_CHANNEL_ID) continue;
-
             const user = await client.users.fetch(userId).catch(() => null);
             if (user) {
                 const dmEmbed = new EmbedBuilder()
