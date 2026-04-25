@@ -12,7 +12,7 @@ sempor[x] Implementar Aprovar/Recusar com segurança
 [ ] Expandir index.js para controlar bot + API Express completa
 [ ] Adicionar proteção e sanitização básica de endpoints administrativos
 [ ] Endurecer .gitignore para evitar vazamento de segredos/artefatos sensíveis
-[ ] Testar subida do bot/API com npm start
+[x] Testar subida do bot/API com npm start (Sincronizado via Manus)
 [ ] Testar endpoints críticos da API com curl
 [x] Criar utils/permissions.js (cadastro + acesso gerência/painel por user.id/cargo)
 [x] Atualizar config/config.js com listas de autorizados e cargos de gerência
