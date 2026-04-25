@@ -21,8 +21,8 @@ module.exports = {
             return;
         }
 
-        // Nome real do arquivo na pasta foto
-        const fileName = 'IMG_4234-fotor-bg-remover-20260424232155.png';
+        // Nome do novo arquivo de banner
+        const fileName = 'IMG_4234.png';
         const bannerPath = path.join(__dirname, '../../foto/', fileName);
 
         if (!fs.existsSync(bannerPath)) {
