@@ -12,7 +12,8 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { isRegisteredUser, isGerencia } = require('../../utils/permissions');
+const { isGerencia } = require('../../utils/permissions');
+const { sendUpdateLog, notifyError } = require('../../utils/notifications');
 
 // ─── Caminhos dos arquivos de configuração ────────────────────────────────────
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
@@ -186,7 +187,6 @@ function buildConfigRows() {
 }
 
 async function renderTab(interaction, tab, edit = false) {
-  const config = loadConfig();
   let embed;
   let extraRows;
 
@@ -273,14 +273,12 @@ module.exports = {
         });
       }
 
-      // Cria o menu de seleção para remover cargos
       const select = new StringSelectMenuBuilder()
         .setCustomId('remove_role_select')
         .setPlaceholder('Selecione um cargo para remover...')
         .setMinValues(1)
         .setMaxValues(1);
 
-      // Adiciona cada cargo como uma opção
       for (const id of roles) {
         const role = interaction.guild.roles.cache.get(id);
         const label = role ? role.name : `Cargo ID: ${id}`;
@@ -323,7 +321,7 @@ module.exports = {
     const configModalMap = {
       edit_staff_channel: { modalId: 'modal_edit_staff_channel', title: '📢 Canal de Solicitações', label: 'Novo ID do Canal', placeholder: 'Ex: 1497368376920772628' },
       edit_cargo_morador: { modalId: 'modal_edit_cargo_morador', title: '🏠 Cargo Morador', label: 'Novo ID do Cargo', placeholder: 'Ex: 1490151003864043570' },
-      edit_cargo_membro: { modalId: 'modal_edit_cargo_membro', title: '👤 Cargo Membro', label: 'Novo ID do Cargo', placeholder: 'Ex: 1497394597746315355' },
+      edit_cargo_membro: { modalId: 'modal_edit_cargo_membro', title: '👤 Cargo Membro', label: 'Novo ID do Cargo', placeholder: 'Ex: 1490151003864043570' },
       edit_category: { modalId: 'modal_edit_category', title: '📁 Categoria dos Canais', label: 'Novo ID da Categoria', placeholder: 'Ex: 1497388763054342244' },
     };
 
@@ -362,13 +360,12 @@ module.exports = {
         ephemeral: true
       });
       
-      // Opcional: Atualizar o painel original se ele ainda estiver visível
-      // Nota: interaction.message refere-se à mensagem da lista, não ao painel principal.
+      await sendUpdateLog(interaction.client, 'Configuração Alterada', `O cargo <@&${roleId}> foi **removido** da lista de staff autorizada por <@${interaction.user.id}>.`);
     }
   },
 
   async handleModal(interaction) {
-    const { customId, fields } = interaction;
+    const { customId, fields, client } = interaction;
 
     if (!canUsePanel(interaction)) {
       await interaction.reply({ content: '❌ **Erro:** Você não tem permissão para realizar esta ação.', ephemeral: true });
@@ -390,6 +387,8 @@ module.exports = {
         saveConfig(config);
         await interaction.deferUpdate();
         await renderTab(interaction, 'tab_roles', true);
+        
+        await sendUpdateLog(client, 'Configuração Alterada', `O cargo <@&${roleId}> foi **adicionado** à lista de staff autorizada por <@${interaction.user.id}>.`);
         return interaction.followUp({ content: `✅ **Sucesso:** Cargo <@&${roleId}> adicionado com sucesso!`, ephemeral: true });
       } else {
         return interaction.reply({ content: '⚠️ **Aviso:** Este cargo já está na lista de autorizados.', ephemeral: true });
@@ -407,6 +406,8 @@ module.exports = {
       saveConfig(config);
       await interaction.deferUpdate();
       await renderTab(interaction, 'tab_roles', true);
+      
+      await sendUpdateLog(client, 'Configuração Alterada', `O cargo <@&${roleId}> foi **removido** da lista de staff autorizada por <@${interaction.user.id}>.`);
       return interaction.followUp({ content: '✅ **Sucesso:** O cargo foi removido das permissões.', ephemeral: true });
     }
 
@@ -425,10 +426,13 @@ module.exports = {
         return interaction.reply({ content: '❌ **Erro:** O ID deve conter apenas números.', ephemeral: true });
       }
 
+      const oldValue = config[key];
       config[key] = value;
       saveConfig(config);
       await interaction.deferUpdate();
       await renderTab(interaction, 'tab_config', true);
+      
+      await sendUpdateLog(client, 'Configuração Alterada', `A configuração **${key}** foi alterada de \`${oldValue || 'vazio'}\` para \`${value}\` por <@${interaction.user.id}>.`);
       return interaction.followUp({ content: `✅ **Sucesso:** Configuração atualizada com sucesso!`, ephemeral: true });
     }
   },

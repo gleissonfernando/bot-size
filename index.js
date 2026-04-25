@@ -9,6 +9,7 @@ const config = require('./config/config');
 const { handleVoiceStateUpdate } = require('./config/callManager');
 const { logger } = require('./utils/logger');
 const { setDiscordClient } = require('./utils/dashboardClient');
+const { notifyError, sendUpdateLog } = require('./utils/notifications');
 
 const app = express();
 const API_PORT = Number(process.env.API_PORT || 3000);
@@ -65,10 +66,13 @@ function safeGuildsSummary(clientInstance) {
     }));
 }
 
-// Initialize Client com intents mínimos para evitar "Used disallowed intents"
+// Initialize Client
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.DirectMessages
     ]
 });
 
@@ -142,16 +146,12 @@ const registerCommands = async () => {
         logger.info('Comandos registrados com sucesso!');
     } catch (error) {
         logger.error('Erro ao registrar comandos', error);
+        notifyError(client, error, 'Registro de Comandos');
     }
 };
 
 client.once('ready', async () => {
     logger.info(`Bot conectado como ${client.user.tag}`);
-    logger.info('Reinício concluído com sucesso', {
-        pid: process.pid,
-        uptimeMs: getUptimeMs(),
-        startedAt: new Date(processStartTime).toISOString()
-    });
     await registerCommands();
 });
 
@@ -160,6 +160,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         handleVoiceStateUpdate(oldState, newState, client);
     } catch (error) {
         logger.error('Erro ao processar voice state update', error);
+        notifyError(client, error, 'Voice State Update');
     }
 });
 
@@ -198,13 +199,6 @@ app.get('/api/guilds', requireAdminToken, (req, res) => {
     });
 });
 
-app.get('/api/logs/stats', requireAdminToken, (req, res) => {
-    return res.status(200).json({
-        ok: true,
-        stats: logger.getStats()
-    });
-});
-
 app.post('/api/admin/register-commands', requireAdminToken, async (req, res) => {
     try {
         await registerCommands();
@@ -236,6 +230,7 @@ app.use((err, req, res, next) => {
 // Login bot + subida da API
 client.login(config.token).catch(err => {
     logger.critical('Erro ao logar o bot', err);
+    // Nota: Aqui o bot ainda não está logado, então notifyError pode falhar se depender do client pronto
     process.exit(1);
 });
 
@@ -245,54 +240,33 @@ app.listen(API_PORT, API_HOST, () => {
 
 // Tratamento de erros não capturados
 process.on('unhandledRejection', (reason, promise) => {
-    logger.error('Promise rejeitada não tratada', new Error(String(reason)), { promise: String(promise) });
-});
-
-process.on('beforeExit', (code) => {
-    logger.warn('Processo entrando em beforeExit', {
-        code,
-        pid: process.pid,
-        uptimeMs: getUptimeMs()
-    });
-});
-
-process.on('exit', (code) => {
-    logger.warn('Processo finalizado (exit)', {
-        code,
-        pid: process.pid,
-        uptimeMs: getUptimeMs()
-    });
-});
-
-process.on('SIGINT', () => {
-    logger.warn('Sinal SIGINT recebido - encerrando aplicação', {
-        signal: 'SIGINT',
-        pid: process.pid,
-        uptimeMs: getUptimeMs()
-    });
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    logger.warn('Sinal SIGTERM recebido - encerrando aplicação', {
-        signal: 'SIGTERM',
-        pid: process.pid,
-        uptimeMs: getUptimeMs()
-    });
-    process.exit(0);
+    logger.error('Promise rejeitada não tratada', new Error(String(reason)));
+    if (client.isReady()) notifyError(client, reason, 'Unhandled Rejection');
 });
 
 process.on('uncaughtException', (error) => {
-    logger.critical('Exceção não capturada', error, {
-        pid: process.pid,
-        uptimeMs: getUptimeMs()
-    });
-    process.exit(1);
+    logger.critical('Exceção não capturada', error);
+    if (client.isReady()) {
+        notifyError(client, error, 'Uncaught Exception').then(() => {
+            process.exit(1);
+        }).catch(() => process.exit(1));
+    } else {
+        process.exit(1);
+    }
 });
 
-// Limpeza de logs antigos a cada 24 horas
-setInterval(() => {
-    logger.cleanOldLogs(7);
-}, 24 * 60 * 60 * 1000);
+process.on('SIGINT', async () => {
+    if (client.isReady()) {
+        await sendUpdateLog(client, 'Bot Desligado', 'O bot foi encerrado via sinal SIGINT (Manual).', '#ED4245');
+    }
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    if (client.isReady()) {
+        await sendUpdateLog(client, 'Bot Desligado', 'O bot foi encerrado via sinal SIGTERM (Sistema).', '#ED4245');
+    }
+    process.exit(0);
+});
 
 module.exports = { client, app };

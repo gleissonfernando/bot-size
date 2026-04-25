@@ -9,20 +9,10 @@ const {
     PermissionFlagsBits,
     ChannelType
 } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
 const { isGerencia } = require('../utils/permissions');
+const { sendStaffLog, notifyError } = require('../utils/notifications');
 
-const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
-
-function loadConfig() {
-    if (fs.existsSync(CONFIG_PATH)) {
-        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    }
-    return { STAFF_ROLES: [], STAFF_CHANNEL_ID: '', CARGO_MORADOR_ID: '', CARGO_MEMBRO_ID: '', CATEGORY_ID: '' };
-}
-
-// IDs fixos (podem ser movidos para config.json depois)
+// IDs fixos
 const CATEGORIA_ID       = '1497388763054342244';
 const CARGO_APROVADO     = '1490151003864043570';
 const CARGO_FORMULARIO   = '1497394597746315355';
@@ -32,35 +22,10 @@ const CANAIS_AUTORIZADOS = [
     '1497368376920772628'
 ];
 
-// Função auxiliar para logs
-async function sendLog(interaction, title, description, color = '#5865F2') {
-    const config = loadConfig();
-    const logChannelId = config.STAFF_CHANNEL_ID;
-    if (!logChannelId) return;
-
-    try {
-        const channel = await interaction.guild.channels.fetch(logChannelId).catch(() => null);
-        if (channel) {
-            const embed = new EmbedBuilder()
-                .setColor(color)
-                .setTitle(title)
-                .setDescription(description)
-                .addFields(
-                    { name: '👤 Usuário', value: `<@${interaction.user.id}> (\`${interaction.user.id}\`)`, inline: true },
-                    { name: '📍 Canal', value: `<#${interaction.channelId}>`, inline: true }
-                )
-                .setFooter({ text: 'Size Log System' })
-                .setTimestamp();
-            await channel.send({ embeds: [embed] });
-        }
-    } catch (err) {
-        console.error('Erro ao enviar log:', err);
-    }
-}
-
 module.exports = {
     name: 'interactionCreate',
     async execute(interaction) {
+        const { client } = interaction;
 
         // ─── Logs de Comandos ────────────────────────────────────
         if (interaction.isChatInputCommand()) {
@@ -75,15 +40,26 @@ module.exports = {
             }
 
             // Log de uso de comando
-            await sendLog(interaction, '⌨️ Comando Utilizado', `O comando \`/${interaction.commandName}\` foi executado.`);
+            await sendStaffLog(client, '⌨️ Comando Utilizado', `O comando \`/${interaction.commandName}\` foi executado por <@${interaction.user.id}> no canal <#${interaction.channelId}>.`);
 
-            const command = interaction.client.commands.get(interaction.commandName);
+            const command = client.commands.get(interaction.commandName);
             if (!command) return;
-            try { await command.execute(interaction); } catch (err) { console.error(err); }
+            
+            try { 
+                await command.execute(interaction); 
+            } catch (err) { 
+                console.error(err);
+                await notifyError(client, err, `Execução do comando /${interaction.commandName}`);
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.followUp({ content: '❌ Ocorreu um erro ao executar este comando.', ephemeral: true });
+                } else {
+                    await interaction.reply({ content: '❌ Ocorreu um erro ao executar este comando.', ephemeral: true });
+                }
+            }
             return;
         }
 
-        const painelCommand = interaction.client.commands.get('painel');
+        const painelCommand = client.commands.get('painel');
 
         // Lida com Botões do Painel
         if (interaction.isButton() && painelCommand && typeof painelCommand.handleButton === 'function') {
@@ -93,7 +69,11 @@ module.exports = {
                 'edit_cargo_membro', 'edit_category'
             ];
             if (painelButtonIds.includes(interaction.customId)) {
-                await painelCommand.handleButton(interaction);
+                try {
+                    await painelCommand.handleButton(interaction);
+                } catch (err) {
+                    await notifyError(client, err, 'Botão do Painel');
+                }
                 return;
             }
         }
@@ -105,7 +85,11 @@ module.exports = {
                 'modal_edit_cargo_morador', 'modal_edit_cargo_membro', 'modal_edit_category'
             ];
             if (painelModalIds.includes(interaction.customId)) {
-                await painelCommand.handleModal(interaction);
+                try {
+                    await painelCommand.handleModal(interaction);
+                } catch (err) {
+                    await notifyError(client, err, 'Modal do Painel');
+                }
                 return;
             }
         }
@@ -113,15 +97,18 @@ module.exports = {
         // Lida com Select Menus do Painel
         if (interaction.isStringSelectMenu() && painelCommand && typeof painelCommand.handleSelectMenu === 'function') {
             if (interaction.customId === 'remove_role_select') {
-                await painelCommand.handleSelectMenu(interaction);
+                try {
+                    await painelCommand.handleSelectMenu(interaction);
+                } catch (err) {
+                    await notifyError(client, err, 'Select Menu do Painel');
+                }
                 return;
             }
         }
 
         // ─── Botão: Iniciar Recrutamento ──────────────────────────
         if (interaction.isButton() && interaction.customId === 'size_set_start') {
-            // Log de abertura de formulário
-            await sendLog(interaction, '📝 Formulário Iniciado', 'O usuário iniciou o preenchimento do formulário de recrutamento.', '#FEE75C');
+            await sendStaffLog(client, '📝 Formulário Iniciado', `O usuário <@${interaction.user.id}> iniciou o preenchimento do formulário.`, '#FEE75C');
 
             const modal = new ModalBuilder()
                 .setCustomId('size_modal_form')
@@ -146,92 +133,98 @@ module.exports = {
 
         // ─── Modal: Envio de Respostas ────────────────────────────
         if (interaction.isModalSubmit() && interaction.customId === 'size_modal_form') {
-            const nome      = interaction.fields.getTextInputValue('campo_nome');
-            const id        = interaction.fields.getTextInputValue('campo_id');
-            const novoNick  = `${id} ${nome}`;
-            const membro    = interaction.member;
+            try {
+                const nome      = interaction.fields.getTextInputValue('campo_nome');
+                const id        = interaction.fields.getTextInputValue('campo_id');
+                const novoNick  = `${id} ${nome}`;
+                const membro    = interaction.member;
 
-            await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ ephemeral: true });
 
-            // Log de envio de ficha
-            await sendLog(interaction, '📩 Ficha Enviada', `O usuário finalizou e enviou a ficha de recrutamento.\n**Nick:** ${novoNick}`, '#57F287');
+                await sendStaffLog(client, '📩 Ficha Enviada', `O usuário <@${membro.id}> enviou a ficha.\n**Nick:** ${novoNick}`, '#57F287');
 
-            try { await membro.setNickname(novoNick); } catch {}
-            try { await membro.roles.add(CARGO_FORMULARIO); } catch {}
+                try { await membro.setNickname(novoNick); } catch {}
+                try { await membro.roles.add(CARGO_FORMULARIO); } catch {}
 
-            const canal = await interaction.guild.channels.create({
-                name: `📋・${id}-${nome}`.toLowerCase(),
-                type: ChannelType.GuildText,
-                parent: CATEGORIA_ID,
-                permissionOverwrites: [
-                    { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: membro.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-                    { id: interaction.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] }
-                ]
-            });
+                const canal = await interaction.guild.channels.create({
+                    name: `📋・${id}-${nome}`.toLowerCase(),
+                    type: ChannelType.GuildText,
+                    parent: CATEGORIA_ID,
+                    permissionOverwrites: [
+                        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: membro.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+                        { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] }
+                    ]
+                });
 
-            const embedFicha = new EmbedBuilder()
-                .setColor('#5865F2')
-                .setAuthor({ name: 'Size — Ficha de Recrutamento', iconURL: interaction.guild.iconURL({ dynamic: true }) })
-                .setTitle(`📋  Ficha de ${novoNick}`)
-                .setDescription(`> Ficha enviada por <@${membro.id}>. Analise e tome uma decisão abaixo.`)
-                .addFields(
-                    { name: '👤 Nome (IC)',     value: `\`${nome}\``,      inline: true },
-                    { name: '🎮 ID no Game',    value: `\`${id}\``,        inline: true },
-                    { name: '🆔 Discord',       value: `<@${membro.id}>`,  inline: true }
-                )
-                .setFooter({ text: 'Size Recrutamento' })
-                .setTimestamp();
+                const embedFicha = new EmbedBuilder()
+                    .setColor('#5865F2')
+                    .setAuthor({ name: 'Size — Ficha de Recrutamento', iconURL: interaction.guild.iconURL({ dynamic: true }) })
+                    .setTitle(`📋  Ficha de ${novoNick}`)
+                    .setDescription(`> Ficha enviada por <@${membro.id}>. Analise e tome uma decisão abaixo.`)
+                    .addFields(
+                        { name: '👤 Nome (IC)',     value: `\`${nome}\``,      inline: true },
+                        { name: '🎮 ID no Game',    value: `\`${id}\``,        inline: true },
+                        { name: '🆔 Discord',       value: `<@${membro.id}>`,  inline: true }
+                    )
+                    .setFooter({ text: 'Size Recrutamento' })
+                    .setTimestamp();
 
-            const rowDecisao = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`aprovar_${membro.id}`).setLabel('✅  Aprovar').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`reprovar_${membro.id}`).setLabel('❌  Reprovar').setStyle(ButtonStyle.Danger)
-            );
+                const rowDecisao = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`aprovar_${membro.id}`).setLabel('✅  Aprovar').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`reprovar_${membro.id}`).setLabel('❌  Reprovar').setStyle(ButtonStyle.Danger)
+                );
 
-            await canal.send({ embeds: [embedFicha], components: [rowDecisao] });
-            await interaction.editReply({ content: `✅ Sua ficha foi enviada com sucesso! Aguarde a análise da staff.` });
+                await canal.send({ embeds: [embedFicha], components: [rowDecisao] });
+                await interaction.editReply({ content: `✅ Sua ficha foi enviada com sucesso! Aguarde a análise da staff.` });
+            } catch (err) {
+                await notifyError(client, err, 'Processamento de Formulário');
+            }
             return;
         }
 
         // ─── Botões: Aprovar / Reprovar ───────────────────────────
         if (interaction.isButton() && (interaction.customId.startsWith('aprovar_') || interaction.customId.startsWith('reprovar_'))) {
-            if (!isGerencia(interaction)) {
-                await interaction.reply({ content: '❌ Sem permissão.', ephemeral: true });
-                return;
+            try {
+                if (!isGerencia(interaction)) {
+                    await interaction.reply({ content: '❌ Sem permissão.', ephemeral: true });
+                    return;
+                }
+
+                const action = interaction.customId.startsWith('aprovar_') ? 'Aprovada' : 'Reprovada';
+                const color = action === 'Aprovada' ? '#57F287' : '#ED4245';
+                const membroId = interaction.customId.split('_')[1];
+                const membro   = await interaction.guild.members.fetch(membroId).catch(() => null);
+
+                await interaction.deferUpdate();
+
+                await sendStaffLog(client, `⚖️ Decisão de Recrutamento: ${action}`, `A ficha de <@${membroId}> foi **${action}** por <@${interaction.user.id}>.`, color);
+
+                if (membro) {
+                    try { await membro.roles.remove(CARGO_FORMULARIO); } catch {}
+                    if (action === 'Aprovada') try { await membro.roles.add(CARGO_APROVADO); } catch {}
+
+                    try {
+                        const dmEmbed = new EmbedBuilder()
+                            .setColor(color)
+                            .setTitle(action === 'Aprovada' ? '✅ Parabéns!' : '❌ Resultado')
+                            .setDescription(`Olá, **${membro.displayName}**! Sua ficha foi **${action.toLowerCase()}** pela staff da **Size**.`)
+                            .setTimestamp();
+                        await membro.send({ embeds: [dmEmbed] });
+                    } catch {}
+                }
+
+                const embedResult = new EmbedBuilder()
+                    .setColor(color)
+                    .setTitle(`✅ Ficha ${action}`)
+                    .setDescription(`<@${membroId}> foi ${action.toLowerCase()} por <@${interaction.user.id}>.`)
+                    .setTimestamp();
+
+                await interaction.message.edit({ embeds: [embedResult], components: [] });
+                if (action === 'Reprovada') setTimeout(async () => { try { await interaction.channel.delete(); } catch {} }, 5000);
+            } catch (err) {
+                await notifyError(client, err, 'Aprovação/Reprovação');
             }
-
-            const action = interaction.customId.startsWith('aprovar_') ? 'Aprovada' : 'Reprovada';
-            const color = action === 'Aprovada' ? '#57F287' : '#ED4245';
-            const membroId = interaction.customId.split('_')[1];
-            const membro   = await interaction.guild.members.fetch(membroId).catch(() => null);
-
-            await interaction.deferUpdate();
-
-            // Log de decisão da Staff
-            await sendLog(interaction, `⚖️ Decisão de Recrutamento: ${action}`, `A ficha de <@${membroId}> foi **${action}** por <@${interaction.user.id}>.`, color);
-
-            if (membro) {
-                try { await membro.roles.remove(CARGO_FORMULARIO); } catch {}
-                if (action === 'Aprovada') try { await membro.roles.add(CARGO_APROVADO); } catch {}
-
-                try {
-                    const dmEmbed = new EmbedBuilder()
-                        .setColor(color)
-                        .setTitle(action === 'Aprovada' ? '✅ Parabéns!' : '❌ Resultado')
-                        .setDescription(`Olá, **${membro.displayName}**! Sua ficha foi **${action.toLowerCase()}** pela staff da **Size**.`)
-                        .setTimestamp();
-                    await membro.send({ embeds: [dmEmbed] });
-                } catch {}
-            }
-
-            const embedResult = new EmbedBuilder()
-                .setColor(color)
-                .setTitle(`✅ Ficha ${action}`)
-                .setDescription(`<@${membroId}> foi ${action.toLowerCase()} por <@${interaction.user.id}>.`)
-                .setTimestamp();
-
-            await interaction.message.edit({ embeds: [embedResult], components: [] });
-            if (action === 'Reprovada') setTimeout(async () => { try { await interaction.channel.delete(); } catch {} }, 5000);
             return;
         }
     }

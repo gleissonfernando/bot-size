@@ -1,15 +1,5 @@
-const { Events, EmbedBuilder } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
-
-const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
-
-function loadConfig() {
-    if (fs.existsSync(CONFIG_PATH)) {
-        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    }
-    return {};
-}
+const { Events } = require('discord.js');
+const { sendUpdateLog } = require('../utils/notifications');
 
 module.exports = {
     name: Events.ClientReady,
@@ -18,29 +8,15 @@ module.exports = {
         console.log(`🚀 Bot Online! Logado como ${client.user.tag}`);
         
         // Log de Inicialização no Canal de Logs
-        const config = loadConfig();
-        const logChannelId = config.STAFF_CHANNEL_ID; // Usando o canal configurado no painel
-
-        if (logChannelId) {
-            try {
-                const channel = await client.channels.fetch(logChannelId).catch(() => null);
-                if (channel) {
-                    const embed = new EmbedBuilder()
-                        .setColor('#5865F2')
-                        .setTitle('🚀 Sistema Inicializado')
-                        .setDescription('O bot da **Size** acabou de ser iniciado/reiniciado com sucesso.')
-                        .addFields(
-                            { name: '🛰️ Status', value: '`Online`', inline: true },
-                            { name: '⏰ Horário', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
-                        )
-                        .setFooter({ text: 'Size Management System' })
-                        .setTimestamp();
-
-                    await channel.send({ embeds: [embed] });
-                }
-            } catch (error) {
-                console.error('Erro ao enviar log de inicialização:', error);
-            }
+        try {
+            await sendUpdateLog(
+                client, 
+                'Bot Ligado', 
+                'O bot da **Size** foi iniciado com sucesso e está operacional.', 
+                '#57F287'
+            );
+        } catch (error) {
+            console.error('Erro ao enviar log de inicialização:', error);
         }
     },
 };
