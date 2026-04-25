@@ -20,6 +20,8 @@ const {
   enableMaintenance,
   disableMaintenance,
   sendMaintenanceAlert,
+  notifyAllStaffMembers,
+  sendMaintenanceLog,
 } = require('../../utils/maintenanceManager');
 
 // ─── Caminhos dos arquivos de configuração ────────────────────────────────────
@@ -436,28 +438,41 @@ module.exports = {
       return renderTab(interaction, customId, true);
     }
 
-    // ─── Botão: Ativar/Desativar Manutenção ───────────────────────────────────
+     // ─── Botão: Ativar/Desativar Manutenção ───────────────────────────────────
     if (customId === 'toggle_manutencao_btn') {
       await interaction.deferUpdate();
       const manutencaoAtiva = isMaintenanceMode();
+      const guild = interaction.guild;
 
       if (manutencaoAtiva) {
+        // ── Desativar ──
         disableMaintenance(interaction.user.id);
-        await sendUpdateLog(client, 'Manutenção Desativada', `O modo de manutenção foi **desativado** por <@${interaction.user.id}>.`, '#57F287');
+
+        // Log no canal + menção aos cargos
+        await sendMaintenanceLog(client, guild, interaction.user.id, false);
+
+        // DM para todos os membros com cargo staff
+        const { enviados, falhas } = await notifyAllStaffMembers(client, guild, interaction.user.id, false);
+
         await interaction.followUp({
-          content: '✅ **Manutenção Desativada:** O bot voltou a operar normalmente.',
+          content: `✅ **Manutenção Desativada:** O bot voltou a operar normalmente.\n📨 **${enviados}** membro(s) da staff foram notificados via DM.`,
           ephemeral: true
         });
       } else {
+        // ── Ativar ──
         enableMaintenance(interaction.user.id);
-        await sendMaintenanceAlert(client, interaction.user.id);
-        await sendUpdateLog(client, 'Manutenção Ativada', `O modo de manutenção foi **ativado** por <@${interaction.user.id}>. Os devs foram notificados.`, '#ED4245');
+
+        // Log no canal + menção aos cargos
+        await sendMaintenanceLog(client, guild, interaction.user.id, true);
+
+        // DM para todos os membros com cargo staff
+        const { enviados, falhas } = await notifyAllStaffMembers(client, guild, interaction.user.id, true);
+
         await interaction.followUp({
-          content: '🔧 **Manutenção Ativada:** O bot está agora em modo de manutenção. Os desenvolvedores foram alertados via DM.',
+          content: `🔧 **Manutenção Ativada:** O bot está agora em modo de manutenção.\n📨 **${enviados}** membro(s) da staff foram notificados via DM${falhas > 0 ? ` (${falhas} não puderam receber DM)` : ''}.`,
           ephemeral: true
         });
       }
-
       return renderTab(interaction, 'tab_manutencao', true);
     }
 

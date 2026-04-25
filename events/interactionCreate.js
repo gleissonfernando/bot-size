@@ -14,9 +14,38 @@ const path = require('path');
 const { isGerencia } = require('../utils/permissions');
 const { sendStaffLog, notifyError, sendUpdateLog } = require('../utils/notifications');
 const { isMaintenanceMode } = require('../utils/maintenanceManager');
-
 // Caminho da config do painel
 const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
+// Arquivo para guardar os nomes originais dos candidatos antes do recrutamento
+const NICKS_PATH = path.join(__dirname, '..', 'commands', 'nicks_originais.json');
+
+function loadNicksOriginais() {
+    try {
+        if (fs.existsSync(NICKS_PATH)) return JSON.parse(fs.readFileSync(NICKS_PATH, 'utf8'));
+    } catch {}
+    return {};
+}
+
+function saveNicksOriginais(data) {
+    try { fs.writeFileSync(NICKS_PATH, JSON.stringify(data, null, 2)); } catch {}
+}
+
+function salvarNickOriginal(membroId, nick) {
+    const data = loadNicksOriginais();
+    data[membroId] = nick;
+    saveNicksOriginais(data);
+}
+
+function getNickOriginal(membroId) {
+    const data = loadNicksOriginais();
+    return data[membroId] || null;
+}
+
+function removerNickOriginal(membroId) {
+    const data = loadNicksOriginais();
+    delete data[membroId];
+    saveNicksOriginais(data);
+};
 
 function loadPanelConfig() {
     try {
@@ -253,7 +282,8 @@ module.exports = {
                 await interaction.deferReply({ ephemeral: true });
 
                 await sendStaffLog(client, '📩 Ficha Enviada', `O usuário <@${membro.id}> enviou a ficha.\n**Nick:** ${novoNick}`, '#57F287');
-
+                // Salva o nome original ANTES de alterar
+                salvarNickOriginal(membro.id, membro.nickname || membro.user.username);
                 try { await membro.setNickname(novoNick); } catch {}
                 try { await membro.roles.add(CARGO_FORMULARIO); } catch {}
 
@@ -313,8 +343,25 @@ module.exports = {
 
                 if (membro) {
                     try { await membro.roles.remove(CARGO_FORMULARIO); } catch {}
-                    if (action === 'Aprovada') try { await membro.roles.add(CARGO_APROVADO); } catch {}
-
+                    if (action === 'Aprovada') {
+                        try { await membro.roles.add(CARGO_APROVADO); } catch {}
+                        // Aprovado: remove o registro do nick original (não precisa restaurar)
+                        removerNickOriginal(membro.id);
+                    } else {
+                        // Reprovado: restaura o nome original do usuário
+                        const nickOriginal = getNickOriginal(membro.id);
+                        if (nickOriginal !== null) {
+                            try {
+                                // Se o nick original era o username (sem apelido), remove o apelido
+                                if (nickOriginal === membro.user.username) {
+                                    await membro.setNickname(null);
+                                } else {
+                                    await membro.setNickname(nickOriginal);
+                                }
+                            } catch {}
+                            removerNickOriginal(membro.id);
+                        }
+                    }
                     try {
                         const dmEmbed = new EmbedBuilder()
                             .setColor(color)
