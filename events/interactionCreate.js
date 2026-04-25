@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { isGerencia } = require('../utils/permissions');
 const { sendStaffLog, notifyError, sendUpdateLog } = require('../utils/notifications');
-const { isMaintenanceMode } = require('../utils/maintenanceManager');
+const { isMaintenanceMode, isStaffMember } = require('../utils/maintenanceManager');
 // Caminho da config do painel
 const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
 // Arquivo para guardar os nomes originais dos candidatos antes do recrutamento
@@ -105,57 +105,54 @@ module.exports = {
         if (interaction.isButton() && interaction.customId === 'manutencao_suporte_btn') {
             await interaction.deferReply({ ephemeral: true });
 
-            const { DEV_NOTIFY_USERS } = require('../utils/maintenanceManager');
+             const { STAFF_ROLE_IDS } = require('../utils/maintenanceManager');
+            // Notifica membros do servidor com cargo de staff sobre o pedido de suporte
             let enviados = 0;
-
-            for (const userId of DEV_NOTIFY_USERS) {
-                try {
-                    const user = await client.users.fetch(userId).catch(() => null);
-                    if (user) {
+            try {
+                const allMembers = await interaction.guild.members.fetch();
+                const staffMembers = allMembers.filter(m =>
+                    !m.user.bot && STAFF_ROLE_IDS.some(rid => m.roles.cache.has(rid))
+                );
+                for (const [, staffMember] of staffMembers) {
+                    try {
                         const embed = new EmbedBuilder()
                             .setColor('#FF6B00')
-                            .setTitle('🆘 Usuário Solicitando Suporte')
-                            .setDescription(`O usuário <@${interaction.user.id}> está solicitando suporte durante o modo de manutenção.`)
+                            .setTitle('\uD83C\uDD98 Usu\u00e1rio Solicitando Suporte')
+                            .setDescription(`O usu\u00e1rio <@${interaction.user.id}> est\u00e1 solicitando suporte durante o modo de manuten\u00e7\u00e3o.`)
                             .addFields(
-                                { name: 'Usuário', value: `${interaction.user.tag} (\`${interaction.user.id}\`)`, inline: true },
+                                { name: 'Usu\u00e1rio', value: `${interaction.user.tag} (\`${interaction.user.id}\`)`, inline: true },
                                 { name: 'Servidor', value: interaction.guild?.name || 'N/A', inline: true }
                             )
                             .setTimestamp();
-                        await user.send({ embeds: [embed] });
+                        await staffMember.send({ embeds: [embed] });
                         enviados++;
-                    }
-                } catch (err) {
-                    console.error(`Erro ao notificar dev ${userId}:`, err);
+                    } catch {}
                 }
-            }
-
+            } catch {}
             await interaction.editReply({
                 content: `✅ **Suporte solicitado!** Nossa equipe foi notificada e entrará em contato em breve. Aguarde!`
             });
             return;
         }
 
-        // ─── Verificação de Manutenção ────────────────────────────────────────
-        // Bloqueia interações de usuários comuns quando o modo manutenção está ativo
-        if (isMaintenanceMode() && !isGerencia(interaction)) {
-            // Permite apenas interações que não são comandos slash ou botões do painel
+        // ─── Verificação de Manutenção ────────────────────────────────────
+        // Bloqueia TODAS as interações de usuários que não possuem cargo de staff
+        if (isMaintenanceMode() && !isStaffMember(interaction.member)) {
             const isSlashCommand = interaction.isChatInputCommand();
-            const isButton = interaction.isButton();
-            const isModal = interaction.isModalSubmit();
-            const isSelect = interaction.isStringSelectMenu();
-
+            const isButton       = interaction.isButton();
+            const isModal        = interaction.isModalSubmit();
+            const isSelect       = interaction.isStringSelectMenu();
             if (isSlashCommand || isButton || isModal || isSelect) {
                 try {
                     const embed = buildMaintenanceEmbed();
-                    const row = buildMaintenanceRow();
-
+                    const row   = buildMaintenanceRow();
                     if (interaction.deferred || interaction.replied) {
                         await interaction.followUp({ embeds: [embed], components: [row], ephemeral: true });
                     } else {
                         await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
                     }
                 } catch (err) {
-                    console.error('Erro ao enviar mensagem de manutenção:', err);
+                    console.error('[Maintenance] Erro ao enviar embed de manutenção:', err);
                 }
                 return;
             }
