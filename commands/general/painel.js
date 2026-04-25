@@ -51,7 +51,7 @@ function loadStats() {
 function buildTabRow(activeTab) {
   const tabs = [
     { id: 'tab_stats', label: 'Estatísticas', emoji: '📊' },
-    { id: 'tab_roles', label: 'Cargos', emoji: '🛡️' },
+    { id: 'tab_roles', label: 'Cargos Staff', emoji: '🛡️' },
     { id: 'tab_config', label: 'Configurações', emoji: '⚙️' },
   ];
 
@@ -113,7 +113,7 @@ function buildRolesEmbed() {
     .setTimestamp();
 }
 
-function buildRolesRows(config) {
+function buildRolesRows() {
   const manageRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('add_role_btn')
@@ -198,7 +198,7 @@ async function renderTab(interaction, tab, edit = false) {
     extraRows = [];
   } else if (tab === 'tab_roles') {
     embed = buildRolesEmbed();
-    extraRows = buildRolesRows(config);
+    extraRows = buildRolesRows();
   } else {
     embed = buildConfigEmbed();
     extraRows = buildConfigRows();
@@ -207,10 +207,14 @@ async function renderTab(interaction, tab, edit = false) {
   const tabRow = buildTabRow(tab);
   const components = [tabRow, ...extraRows];
 
-  if (edit) {
-    await interaction.editReply({ embeds: [embed], components });
-  } else {
-    await interaction.reply({ embeds: [embed], components });
+  try {
+    if (edit) {
+      await interaction.editReply({ embeds: [embed], components });
+    } else {
+      await interaction.reply({ embeds: [embed], components });
+    }
+  } catch (error) {
+    console.error(`Erro ao renderizar aba ${tab}:`, error);
   }
 }
 
@@ -227,33 +231,29 @@ module.exports = {
     .setDescription('Abre o painel de controle do bot Size.'),
 
   async execute(interaction) {
+    // Todos podem ver a aba de estatísticas por padrão
     await renderTab(interaction, 'tab_stats', false);
   },
 
   async handleButton(interaction) {
     const { customId } = interaction;
 
+    // Proteção de acesso para interações
     if (!canUsePanel(interaction)) {
-      await interaction.reply({ content: '❌ **Acesso Negado:** Apenas a Staff autorizada pode interagir com o painel administrativo.', ephemeral: true });
+      await interaction.reply({ 
+        content: '❌ **Acesso Negado:** Apenas a Staff autorizada pode interagir com os controles administrativos.', 
+        ephemeral: true 
+      });
       return;
     }
 
+    // Navegação entre abas
     if (['tab_stats', 'tab_roles', 'tab_config'].includes(customId)) {
       await interaction.deferUpdate();
       return renderTab(interaction, customId, true);
     }
 
-    if (customId.startsWith('remove_role_')) {
-      const roleId = customId.replace('remove_role_', '');
-      const config = loadConfig();
-      config.STAFF_ROLES = (config.STAFF_ROLES ?? []).filter(r => r !== roleId);
-      saveConfig(config);
-
-      await interaction.deferUpdate();
-      await renderTab(interaction, 'tab_roles', true);
-      return interaction.followUp({ content: '✅ **Sucesso:** O cargo foi removido das permissões.', ephemeral: true });
-    }
-
+    // Ações da aba de Cargos
     if (customId === 'add_role_btn') {
       const modal = new ModalBuilder()
         .setCustomId('modal_add_role')
@@ -264,7 +264,7 @@ module.exports = {
           new TextInputBuilder()
             .setCustomId('role_id_input')
             .setLabel('ID ou Menção do Cargo')
-            .setPlaceholder('Ex: 123456789012345678')
+            .setPlaceholder('Cole o ID do cargo ou mencione @cargo')
             .setStyle(TextInputStyle.Short)
             .setRequired(true),
         ),
@@ -300,20 +300,20 @@ module.exports = {
           new TextInputBuilder()
             .setCustomId('role_id_remove_input')
             .setLabel('ID do Cargo para Remover')
-            .setPlaceholder('Ex: 123456789012345678')
+            .setPlaceholder('Insira o ID numérico do cargo')
             .setStyle(TextInputStyle.Short)
             .setRequired(true),
         ),
       );
-
       return interaction.showModal(modal);
     }
 
+    // Ações da aba de Configurações
     const configModalMap = {
-      edit_staff_channel: { modalId: 'modal_edit_staff_channel', title: '📢 Canal de Solicitações', label: 'Novo ID do Canal', placeholder: 'Ex: 123456789012345678' },
-      edit_cargo_morador: { modalId: 'modal_edit_cargo_morador', title: '🏠 Cargo Morador', label: 'Novo ID do Cargo', placeholder: 'Ex: 123456789012345678' },
-      edit_cargo_membro: { modalId: 'modal_edit_cargo_membro', title: '👤 Cargo Membro', label: 'Novo ID do Cargo', placeholder: 'Ex: 123456789012345678' },
-      edit_category: { modalId: 'modal_edit_category', title: '📁 Categoria dos Canais', label: 'Novo ID da Categoria', placeholder: 'Ex: 123456789012345678' },
+      edit_staff_channel: { modalId: 'modal_edit_staff_channel', title: '📢 Canal de Solicitações', label: 'Novo ID do Canal', placeholder: 'Ex: 1497368376920772628' },
+      edit_cargo_morador: { modalId: 'modal_edit_cargo_morador', title: '🏠 Cargo Morador', label: 'Novo ID do Cargo', placeholder: 'Ex: 1490151003864043570' },
+      edit_cargo_membro: { modalId: 'modal_edit_cargo_membro', title: '👤 Cargo Membro', label: 'Novo ID do Cargo', placeholder: 'Ex: 1497394597746315355' },
+      edit_category: { modalId: 'modal_edit_category', title: '📁 Categoria dos Canais', label: 'Novo ID da Categoria', placeholder: 'Ex: 1497388763054342244' },
     };
 
     if (configModalMap[customId]) {
@@ -343,25 +343,42 @@ module.exports = {
 
     const config = loadConfig();
 
+    // Lógica para Adicionar Cargo
     if (customId === 'modal_add_role') {
-      let roleId = fields.getTextInputValue('role_id_input').replace(/[<@&>]/g, '');
+      let roleId = fields.getTextInputValue('role_id_input').replace(/[<@&>]/g, '').trim();
+      
+      if (!/^\d+$/.test(roleId)) {
+        return interaction.reply({ content: '❌ **Erro:** O ID do cargo deve conter apenas números.', ephemeral: true });
+      }
+
       if (!config.STAFF_ROLES) config.STAFF_ROLES = [];
       if (!config.STAFF_ROLES.includes(roleId)) {
         config.STAFF_ROLES.push(roleId);
         saveConfig(config);
+        await interaction.deferUpdate();
+        await renderTab(interaction, 'tab_roles', true);
+        return interaction.followUp({ content: `✅ **Sucesso:** Cargo <@&${roleId}> adicionado com sucesso!`, ephemeral: true });
+      } else {
+        return interaction.reply({ content: '⚠️ **Aviso:** Este cargo já está na lista de autorizados.', ephemeral: true });
       }
-      await interaction.deferUpdate();
-      return renderTab(interaction, 'tab_roles', true);
     }
 
+    // Lógica para Remover Cargo
     if (customId === 'modal_remove_role') {
-      let roleId = fields.getTextInputValue('role_id_remove_input').replace(/[<@&>]/g, '');
-      config.STAFF_ROLES = (config.STAFF_ROLES ?? []).filter(r => r !== roleId);
+      let roleId = fields.getTextInputValue('role_id_remove_input').replace(/[<@&>]/g, '').trim();
+      
+      if (!config.STAFF_ROLES || !config.STAFF_ROLES.includes(roleId)) {
+        return interaction.reply({ content: '❌ **Erro:** Este ID de cargo não foi encontrado na lista.', ephemeral: true });
+      }
+
+      config.STAFF_ROLES = config.STAFF_ROLES.filter(r => r !== roleId);
       saveConfig(config);
       await interaction.deferUpdate();
-      return renderTab(interaction, 'tab_roles', true);
+      await renderTab(interaction, 'tab_roles', true);
+      return interaction.followUp({ content: '✅ **Sucesso:** O cargo foi removido das permissões.', ephemeral: true });
     }
 
+    // Lógica para Configurações Gerais
     const configUpdateMap = {
       modal_edit_staff_channel: 'STAFF_CHANNEL_ID',
       modal_edit_cargo_morador: 'CARGO_MORADOR_ID',
@@ -371,10 +388,17 @@ module.exports = {
 
     if (configUpdateMap[customId]) {
       const key = configUpdateMap[customId];
-      config[key] = fields.getTextInputValue('config_value_input').trim();
+      const value = fields.getTextInputValue('config_value_input').trim();
+      
+      if (!/^\d+$/.test(value)) {
+        return interaction.reply({ content: '❌ **Erro:** O ID deve conter apenas números.', ephemeral: true });
+      }
+
+      config[key] = value;
       saveConfig(config);
       await interaction.deferUpdate();
-      return renderTab(interaction, 'tab_config', true);
+      await renderTab(interaction, 'tab_config', true);
+      return interaction.followUp({ content: `✅ **Sucesso:** Configuração atualizada com sucesso!`, ephemeral: true });
     }
   },
 };
