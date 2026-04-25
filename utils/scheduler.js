@@ -1,46 +1,130 @@
 /**
- * Agendador de Mensagens Automáticas
- * 
- * Responsável por enviar mensagens automáticas de bom dia no canal configurado
- * com menção ao cargo definido.
- * 
- * Canal: 1484969500884471879
- * Cargo: 1490147350570860725
- * Horário: Todos os dias às 08:00 (horário de Brasília / UTC-3)
+ * Scheduler — Sistema de Mensagens Automáticas
+ *
+ * Suporta:
+ *  - Mensagens fixas (bom dia 08h, todo mundo on 18h seg-sex)
+ *  - Mensagens personalizadas salvas em scheduled_messages.json
+ *
+ * Horários em BRT (UTC-3). Verificação a cada 30 segundos.
  */
 
+const fs   = require('fs');
+const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 
-const AUTO_MSG_CHANNEL_ID = '1484969500884471879';
-const AUTO_MSG_ROLE_ID = '1490147350570860725';
+// ─── Constantes fixas ─────────────────────────────────────────────────────────
+const CANAL_AUTO_ID    = '1484969500884471879';
+const CARGO_MENCAO_ID  = '1490151003864043570'; // cargo para @mencionar nas mensagens fixas
+const CARGO_BOM_DIA_ID = '1490147350570860725'; // cargo para bom dia
+const CARGO_DEV_ID     = '1497405005802635374'; // único cargo que pode gerenciar mensagens auto
 
-// Horário de envio: 08:00 horário de Brasília (UTC-3 = 11:00 UTC)
-const SEND_HOUR_UTC = 11; // 08:00 BRT = 11:00 UTC
-const SEND_MINUTE = 0;
+// Arquivo de persistência das mensagens personalizadas
+const MSGS_PATH = path.join(__dirname, '..', 'commands', 'scheduled_messages.json');
 
+// Controle de estado
 let schedulerInterval = null;
-let lastSentDate = null;
+let lastSentMap = {}; // { "msgId_YYYY-MM-DD_HH:MM": true }
+
+// ─── Helpers de persistência ──────────────────────────────────────────────────
+function loadScheduledMessages() {
+    try {
+        if (fs.existsSync(MSGS_PATH)) {
+            return JSON.parse(fs.readFileSync(MSGS_PATH, 'utf8'));
+        }
+    } catch (err) {
+        console.error('[Scheduler] Erro ao carregar mensagens agendadas:', err);
+    }
+    return { ativo: true, mensagens: [] };
+}
+
+function saveScheduledMessages(data) {
+    try {
+        fs.writeFileSync(MSGS_PATH, JSON.stringify(data, null, 2));
+    } catch (err) {
+        console.error('[Scheduler] Erro ao salvar mensagens agendadas:', err);
+    }
+}
+
+function isSchedulerAtivo() {
+    return loadScheduledMessages().ativo !== false;
+}
+
+function setSchedulerAtivo(ativo) {
+    const data = loadScheduledMessages();
+    data.ativo = ativo;
+    saveScheduledMessages(data);
+}
 
 /**
- * Constrói o embed de bom dia
+ * Adiciona uma nova mensagem agendada personalizada.
+ * @param {Object} msg - { id, canal_id, texto, hora, dias, criado_por }
+ *   dias: array de números 0-6 (0=Dom, 1=Seg, ..., 6=Sab) ou ["todos"]
  */
+function addScheduledMessage(msg) {
+    const data = loadScheduledMessages();
+    if (!Array.isArray(data.mensagens)) data.mensagens = [];
+    data.mensagens.push(msg);
+    saveScheduledMessages(data);
+}
+
+function removeScheduledMessage(id) {
+    const data = loadScheduledMessages();
+    data.mensagens = (data.mensagens || []).filter(m => m.id !== id);
+    saveScheduledMessages(data);
+}
+
+function listScheduledMessages() {
+    return loadScheduledMessages().mensagens || [];
+}
+
+// ─── Utilitários de tempo ─────────────────────────────────────────────────────
+/** Retorna hora e minuto atuais em BRT (UTC-3) */
+function getBRTTime() {
+    const now = new Date();
+    // BRT = UTC - 3h
+    const brtMs = now.getTime() - 3 * 60 * 60 * 1000;
+    const brt   = new Date(brtMs);
+    return {
+        hour:    brt.getUTCHours(),
+        minute:  brt.getUTCMinutes(),
+        weekday: brt.getUTCDay(),   // 0=Dom, 1=Seg, ..., 6=Sab
+        dateStr: brt.toISOString().split('T')[0]  // YYYY-MM-DD
+    };
+}
+
+/** Chave única para controle de envio (evita duplicatas) */
+function sentKey(id, dateStr, hora) {
+    return `${id}_${dateStr}_${hora}`;
+}
+
+/** Verifica se já foi enviado hoje nesse horário */
+function alreadySent(id, dateStr, hora) {
+    return lastSentMap[sentKey(id, dateStr, hora)] === true;
+}
+
+function markSent(id, dateStr, hora) {
+    lastSentMap[sentKey(id, dateStr, hora)] = true;
+    // Limpa entradas antigas (mantém só os últimos 2 dias)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 2);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+    for (const key of Object.keys(lastSentMap)) {
+        const parts = key.split('_');
+        if (parts[1] && parts[1] < cutoffStr) delete lastSentMap[key];
+    }
+}
+
+// ─── Embeds fixos ─────────────────────────────────────────────────────────────
 function buildBomdiaEmbed() {
     const now = new Date();
-    const hora = now.toLocaleTimeString('pt-BR', {
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'America/Sao_Paulo'
-    });
-    const data = now.toLocaleDateString('pt-BR', {
-        weekday: 'long',
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric',
-        timeZone: 'America/Sao_Paulo'
-    });
+    const brtMs = now.getTime() - 3 * 60 * 60 * 1000;
+    const brt = new Date(brtMs);
 
-    // Capitaliza a primeira letra do dia da semana
-    const dataFormatada = data.charAt(0).toUpperCase() + data.slice(1);
+    const hora = brt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+    const data = brt.toLocaleDateString('pt-BR', {
+        weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', timeZone: 'UTC'
+    });
+    const dataFmt = data.charAt(0).toUpperCase() + data.slice(1);
 
     const saudacoes = [
         'Que hoje seja um dia incrível para toda a família **Size**! 🌟',
@@ -49,7 +133,6 @@ function buildBomdiaEmbed() {
         'Que esse dia traga muitas conquistas para todos nós! 🏆',
         'Bom dia, família **Size**! Vamos fazer desse dia algo especial! 🎯'
     ];
-
     const saudacao = saudacoes[Math.floor(Math.random() * saudacoes.length)];
 
     return new EmbedBuilder()
@@ -58,98 +141,181 @@ function buildBomdiaEmbed() {
         .setDescription(
             `### ☀️ Bom dia a todos!\n\n` +
             `> ${saudacao}\n\n` +
-            `📅 **${dataFormatada}** — 🕐 ${hora}\n\n` +
-            `<@&${AUTO_MSG_ROLE_ID}> — Bom dia a todos os membros! 🎉`
+            `📅 **${dataFmt}** — 🕐 ${hora}\n\n` +
+            `<@&${CARGO_BOM_DIA_ID}> — Bom dia a todos os membros! 🎉`
         )
-        .setThumbnail('https://cdn-icons-png.flaticon.com/512/869/869869.png')
-        .setImage('https://cdn-icons-png.flaticon.com/512/4052/4052984.png')
         .setFooter({ text: 'Size — Mensagem Automática de Bom Dia' })
         .setTimestamp();
 }
 
-/**
- * Verifica se está na hora de enviar a mensagem de bom dia
- */
-function shouldSendNow() {
+function buildTodoMundoOnEmbed() {
     const now = new Date();
-    const utcHour = now.getUTCHours();
-    const utcMinute = now.getUTCMinutes();
-    const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const brtMs = now.getTime() - 3 * 60 * 60 * 1000;
+    const brt = new Date(brtMs);
 
-    // Verifica se já enviou hoje
-    if (lastSentDate === todayStr) return false;
+    const hora = brt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+    const data = brt.toLocaleDateString('pt-BR', {
+        weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', timeZone: 'UTC'
+    });
+    const dataFmt = data.charAt(0).toUpperCase() + data.slice(1);
 
-    // Verifica se está no horário correto (janela de 1 minuto)
-    if (utcHour === SEND_HOUR_UTC && utcMinute === SEND_MINUTE) {
-        return true;
-    }
+    const frases = [
+        'Chegou a hora! Vamos reunir a galera e mostrar do que a **Size** é capaz! 🔥',
+        'É hora de juntar o time! Bora fazer acontecer hoje! 💥',
+        'A **Size** está online! Venha fazer parte dessa família! 🎮',
+        'Hora de reunir a equipe e dominar! Quem está pronto? 🏆',
+        'Chamada geral! A **Size** está convocando todos para a ação! ⚡'
+    ];
+    const frase = frases[Math.floor(Math.random() * frases.length)];
 
-    return false;
+    return new EmbedBuilder()
+        .setTitle('🟢  Todo Mundo On — Size!')
+        .setColor(0x57F287)
+        .setDescription(
+            `### 🎮 Hora de reunir o time!\n\n` +
+            `> ${frase}\n\n` +
+            `📅 **${dataFmt}** — 🕐 ${hora}\n\n` +
+            `<@&${CARGO_MENCAO_ID}> — Venha se juntar a nós agora! 🚀`
+        )
+        .setFooter({ text: 'Size — Aviso de Servidor Online' })
+        .setTimestamp();
 }
 
-/**
- * Envia a mensagem de bom dia
- */
-async function sendBomdiaMessage(client) {
+// ─── Envio de mensagens ───────────────────────────────────────────────────────
+async function sendToChannel(client, canalId, payload) {
     try {
-        const canal = await client.channels.fetch(AUTO_MSG_CHANNEL_ID).catch(() => null);
+        const canal = await client.channels.fetch(canalId).catch(() => null);
         if (!canal) {
-            console.error(`[Scheduler] Canal ${AUTO_MSG_CHANNEL_ID} não encontrado.`);
+            console.error(`[Scheduler] Canal ${canalId} não encontrado.`);
             return false;
         }
-
-        const embed = buildBomdiaEmbed();
-        await canal.send({ embeds: [embed] });
-
-        const todayStr = new Date().toISOString().split('T')[0];
-        lastSentDate = todayStr;
-
-        console.log(`[Scheduler] ✅ Mensagem de bom dia enviada com sucesso em ${new Date().toISOString()}`);
+        await canal.send(payload);
         return true;
     } catch (err) {
-        console.error('[Scheduler] Erro ao enviar mensagem de bom dia:', err);
+        console.error(`[Scheduler] Erro ao enviar no canal ${canalId}:`, err);
         return false;
     }
 }
 
-/**
- * Inicia o agendador de mensagens automáticas
- * Verifica a cada 30 segundos se está na hora de enviar
- */
-function startScheduler(client) {
-    if (schedulerInterval) {
-        clearInterval(schedulerInterval);
+/** Envia a mensagem de bom dia (pode ser chamada manualmente pelo painel) */
+async function sendBomdiaMessage(client) {
+    const embed = buildBomdiaEmbed();
+    return sendToChannel(client, CANAL_AUTO_ID, { embeds: [embed] });
+}
+
+/** Envia a mensagem de todo mundo on (pode ser chamada manualmente pelo painel) */
+async function sendTodoMundoOnMessage(client) {
+    const embed = buildTodoMundoOnEmbed();
+    return sendToChannel(client, CANAL_AUTO_ID, { embeds: [embed] });
+}
+
+// ─── Loop principal do agendador ──────────────────────────────────────────────
+async function runSchedulerTick(client) {
+    if (!isSchedulerAtivo()) return;
+
+    const { hour, minute, weekday, dateStr } = getBRTTime();
+
+    // ── Mensagem de Bom Dia — 08:00 BRT todos os dias ──
+    if (hour === 8 && minute === 0) {
+        const key = 'bomdia';
+        if (!alreadySent(key, dateStr, '08:00')) {
+            const ok = await sendBomdiaMessage(client);
+            if (ok) {
+                markSent(key, dateStr, '08:00');
+                console.log(`[Scheduler] ✅ Bom dia enviado (${dateStr})`);
+            }
+        }
     }
 
-    console.log('[Scheduler] ✅ Agendador de mensagens automáticas iniciado.');
-    console.log(`[Scheduler] Mensagem de bom dia será enviada às 08:00 BRT (${SEND_HOUR_UTC}:${String(SEND_MINUTE).padStart(2, '0')} UTC) no canal ${AUTO_MSG_CHANNEL_ID}`);
-
-    // Verifica a cada 30 segundos
-    schedulerInterval = setInterval(async () => {
-        if (shouldSendNow()) {
-            await sendBomdiaMessage(client);
+    // ── Mensagem Todo Mundo On — 18:00 BRT seg-sex (1-5) ──
+    if (hour === 18 && minute === 0 && weekday >= 1 && weekday <= 5) {
+        const key = 'todoMundoOn';
+        if (!alreadySent(key, dateStr, '18:00')) {
+            const ok = await sendTodoMundoOnMessage(client);
+            if (ok) {
+                markSent(key, dateStr, '18:00');
+                console.log(`[Scheduler] ✅ Todo mundo on enviado (${dateStr})`);
+            }
         }
-    }, 30 * 1000);
+    }
 
+    // ── Mensagens personalizadas ──
+    const msgs = listScheduledMessages();
+    for (const msg of msgs) {
+        if (!msg.id || !msg.canal_id || !msg.texto || !msg.hora) continue;
+
+        const [msgHour, msgMin] = msg.hora.split(':').map(Number);
+        if (isNaN(msgHour) || isNaN(msgMin)) continue;
+        if (hour !== msgHour || minute !== msgMin) continue;
+
+        // Verifica dias da semana
+        const diasValidos = Array.isArray(msg.dias) ? msg.dias : [0, 1, 2, 3, 4, 5, 6];
+        const todosOsDias = diasValidos.includes('todos') || diasValidos.length === 7;
+        if (!todosOsDias && !diasValidos.includes(weekday)) continue;
+
+        const horaKey = msg.hora;
+        if (alreadySent(msg.id, dateStr, horaKey)) continue;
+
+        // Monta o payload
+        let payload;
+        if (msg.embed) {
+            const embed = new EmbedBuilder()
+                .setColor(msg.cor ? parseInt(msg.cor.replace('#', ''), 16) : 0x5865F2)
+                .setDescription(msg.texto)
+                .setFooter({ text: 'Size — Mensagem Automática' })
+                .setTimestamp();
+            payload = { embeds: [embed] };
+        } else {
+            payload = { content: msg.texto };
+        }
+
+        const ok = await sendToChannel(client, msg.canal_id, payload);
+        if (ok) {
+            markSent(msg.id, dateStr, horaKey);
+            console.log(`[Scheduler] ✅ Mensagem personalizada "${msg.id}" enviada (${dateStr} ${horaKey})`);
+        }
+    }
+}
+
+// ─── Inicialização ────────────────────────────────────────────────────────────
+function startScheduler(client) {
+    if (schedulerInterval) clearInterval(schedulerInterval);
+
+    // Garante que o arquivo de mensagens existe
+    if (!fs.existsSync(MSGS_PATH)) {
+        saveScheduledMessages({ ativo: true, mensagens: [] });
+    }
+
+    console.log('[Scheduler] ✅ Agendador iniciado.');
+    console.log('[Scheduler] Bom dia: 08:00 BRT | Todo mundo on: 18:00 BRT (seg-sex)');
+
+    schedulerInterval = setInterval(() => runSchedulerTick(client), 30 * 1000);
     return schedulerInterval;
 }
 
-/**
- * Para o agendador
- */
 function stopScheduler() {
     if (schedulerInterval) {
         clearInterval(schedulerInterval);
         schedulerInterval = null;
-        console.log('[Scheduler] Agendador parado.');
+        console.log('[Scheduler] Parado.');
     }
 }
 
+// ─── Exports ──────────────────────────────────────────────────────────────────
 module.exports = {
     startScheduler,
     stopScheduler,
     sendBomdiaMessage,
+    sendTodoMundoOnMessage,
     buildBomdiaEmbed,
-    AUTO_MSG_CHANNEL_ID,
-    AUTO_MSG_ROLE_ID
+    buildTodoMundoOnEmbed,
+    addScheduledMessage,
+    removeScheduledMessage,
+    listScheduledMessages,
+    isSchedulerAtivo,
+    setSchedulerAtivo,
+    CANAL_AUTO_ID,
+    CARGO_MENCAO_ID,
+    CARGO_BOM_DIA_ID,
+    CARGO_DEV_ID
 };

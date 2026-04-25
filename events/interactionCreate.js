@@ -199,7 +199,8 @@ module.exports = {
                 'add_role_btn', 'list_roles_btn', 'remove_role_modal_btn',
                 'edit_staff_channel', 'edit_cargo_morador', 'edit_cargo_membro', 'edit_category',
                 'toggle_manutencao_btn', 'alert_manutencao_btn',
-                'send_msg_canal_btn', 'test_bomdia_btn',
+                'send_msg_canal_btn', 'test_bomdia_btn', 'test_todoMundoOn_btn',
+                'toggle_scheduler_btn', 'add_auto_msg_btn', 'remove_auto_msg_btn',
                 'test_system_btn'
             ];
 
@@ -219,7 +220,8 @@ module.exports = {
                 'modal_add_role', 'modal_remove_role',
                 'modal_edit_staff_channel', 'modal_edit_cargo_morador',
                 'modal_edit_cargo_membro', 'modal_edit_category',
-                'modal_alert_devs', 'modal_send_msg_canal'
+                'modal_alert_devs', 'modal_send_msg_canal',
+                'modal_add_auto_msg'
             ];
             if (painelModalIds.includes(interaction.customId)) {
                 try {
@@ -233,7 +235,7 @@ module.exports = {
 
         // ─── Lida com Select Menus do Painel ──────────────────────────────────
         if (interaction.isStringSelectMenu() && painelCommand && typeof painelCommand.handleSelectMenu === 'function') {
-            if (interaction.customId === 'remove_role_select') {
+            if (interaction.customId === 'remove_role_select' || interaction.customId === 'remove_auto_msg_select') {
                 try {
                     await painelCommand.handleSelectMenu(interaction);
                 } catch (err) {

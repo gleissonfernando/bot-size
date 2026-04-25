@@ -27,11 +27,26 @@ const {
 // ─── Caminhos dos arquivos de configuração ────────────────────────────────────
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
 const STATS_PATH = path.join(__dirname, '..', 'stats.json');
-
-// ─── Canal e Cargo para mensagens automáticas ─────────────────────────────────
-const AUTO_MSG_CHANNEL_ID = '1484969500884471879';
-const AUTO_MSG_ROLE_ID = '1490147350570860725';
-
+// ─── Scheduler de mensagens automáticas ─────────────────────────────────────────────
+const {
+  sendBomdiaMessage,
+  sendTodoMundoOnMessage,
+  buildBomdiaEmbed: schedulerBomdiaEmbed,
+  buildTodoMundoOnEmbed,
+  addScheduledMessage,
+  removeScheduledMessage,
+  listScheduledMessages,
+  isSchedulerAtivo,
+  setSchedulerAtivo,
+  CANAL_AUTO_ID,
+  CARGO_MENCAO_ID,
+  CARGO_BOM_DIA_ID,
+  CARGO_DEV_ID,
+} = require('../../utils/scheduler');
+const AUTO_MSG_CHANNEL_ID = CANAL_AUTO_ID;
+const AUTO_MSG_ROLE_ID    = CARGO_BOM_DIA_ID;
+// Cargo dev que pode gerenciar mensagens automáticas
+const DEV_CARGO_ID = CARGO_DEV_ID; // '1497405005802635374'
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function loadConfig() {
   try {
@@ -293,36 +308,47 @@ function buildManutencaoRows() {
   return [row];
 }
 
-// ─── ABA: Mensagens ───────────────────────────────────────────────────────────
-
+// ─── ABA: Mensagens ─────────────────────────────────────────────────────
 function buildMensagensEmbed() {
+  const schedulerOn = isSchedulerAtivo();
+  const msgs = listScheduledMessages();
+
+  const diasNomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  let listaMsgs = '';
+  if (msgs.length === 0) {
+    listaMsgs = '> _Nenhuma mensagem personalizada cadastrada._';
+  } else {
+    listaMsgs = msgs.map((m, i) => {
+      const diasStr = Array.isArray(m.dias)
+        ? (m.dias.includes('todos') ? 'Todos os dias' : m.dias.map(d => diasNomes[d]).join(', '))
+        : 'Todos os dias';
+      return `**${i + 1}. ${m.hora}** | ${diasStr} | <#${m.canal_id}>\n> ${m.texto.slice(0, 60)}${m.texto.length > 60 ? '...' : ''}`;
+    }).join('\n\n');
+  }
+
   return new EmbedBuilder()
     .setTitle('💬  Painel de Controle — Central de Mensagens')
     .setColor(0x5865F2)
-    .setThumbnail('https://cdn-icons-png.flaticon.com/512/1041/1041916.png')
     .setDescription(
-      '### 📨 Envio e Automação de Mensagens\n' +
-      'Use os botões abaixo para enviar mensagens via bot para qualquer canal ou testar a mensagem automática de bom dia.\n\n' +
-      `**📢 Canal de Mensagens Automáticas:**\n> <#${AUTO_MSG_CHANNEL_ID}>\n\n` +
-      `**🏷️ Cargo Mencionado:**\n> <@&${AUTO_MSG_ROLE_ID}>`
+      `### 🤖 Status do Agendador: ${schedulerOn ? '🟢 **Ativo**' : '🔴 **Pausado**'}\n\n` +
+      `**📢 Canal fixo de mensagens automáticas:** <#${AUTO_MSG_CHANNEL_ID}>\n` +
+      `**🏷️ Cargo mencionado (Todo Mundo On):** <@&${CARGO_MENCAO_ID}>\n` +
+      `**☀️ Cargo mencionado (Bom Dia):** <@&${AUTO_MSG_ROLE_ID}>\n\n` +
+      `**🕒 Mensagens Fixas:**\n` +
+      `> 🌅 **Bom Dia** — 08:00 BRT todos os dias — <#${AUTO_MSG_CHANNEL_ID}>\n` +
+      `> 🟢 **Todo Mundo On** — 18:00 BRT (Seg–Sex) — <#${AUTO_MSG_CHANNEL_ID}>\n\n` +
+      `**📝 Mensagens Personalizadas (${msgs.length}):**\n${listaMsgs}`
     )
-    .addFields(
-      {
-        name: '🌅 Mensagem de Bom Dia',
-        value: `> Enviada automaticamente no canal <#${AUTO_MSG_CHANNEL_ID}> com menção ao cargo <@&${AUTO_MSG_ROLE_ID}>.`,
-        inline: false
-      },
-      {
-        name: '📤 Envio Manual',
-        value: '> Selecione um canal e escreva a mensagem que será enviada pelo bot.',
-        inline: false
-      }
-    )
-    .setFooter({ text: 'Size Management System • Mensagens' })
+    .setFooter({ text: 'Size Management System • Mensagens | Somente DEV pode ativar/desativar' })
     .setTimestamp();
 }
 
-function buildMensagensRows() {
+function buildMensagensRows(member) {
+  const isDev = member && member.roles && member.roles.cache.has(DEV_CARGO_ID);
+  const schedulerOn = isSchedulerAtivo();
+
+  // Linha 1: Envio manual + testes
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('send_msg_canal_btn')
@@ -334,9 +360,40 @@ function buildMensagensRows() {
       .setLabel('Testar Bom Dia')
       .setEmoji('🌅')
       .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('test_todoMundoOn_btn')
+      .setLabel('Testar Todo Mundo On')
+      .setEmoji('🟢')
+      .setStyle(ButtonStyle.Success),
   );
 
-  return [row1];
+  // Linha 2: Gerenciar mensagens (só DEV)
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('add_auto_msg_btn')
+      .setLabel('Adicionar Mensagem Programada')
+      .setEmoji('➕')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!isDev),
+    new ButtonBuilder()
+      .setCustomId('remove_auto_msg_btn')
+      .setLabel('Remover Mensagem')
+      .setEmoji('🗑️')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!isDev),
+  );
+
+  // Linha 3: Ativar/Desativar agendador (só DEV)
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('toggle_scheduler_btn')
+      .setLabel(schedulerOn ? 'Pausar Mensagens Automáticas' : 'Iniciar Mensagens Automáticas')
+      .setEmoji(schedulerOn ? '⏸️' : '▶️')
+      .setStyle(schedulerOn ? ButtonStyle.Danger : ButtonStyle.Success)
+      .setDisabled(!isDev),
+  );
+
+  return [row1, row2, row3];
 }
 
 // ─── Render Principal ─────────────────────────────────────────────────────────
@@ -356,7 +413,7 @@ async function renderTab(interaction, tab, edit = false) {
     extraRows = buildManutencaoRows();
   } else if (tab === 'tab_mensagens') {
     embed = buildMensagensEmbed();
-    extraRows = buildMensagensRows();
+    extraRows = buildMensagensRows(interaction.member);
   } else {
     embed = buildConfigEmbed();
     extraRows = buildConfigRows();
@@ -524,28 +581,130 @@ module.exports = {
       return interaction.showModal(modal);
     }
 
-    // ─── Botão: Testar Bom Dia ────────────────────────────────────────────────
+    // ─── Botão: Testar Bom Dia ────────────────────────────────────────────
     if (customId === 'test_bomdia_btn') {
       await interaction.deferReply({ ephemeral: true });
-
       try {
-        const canal = await client.channels.fetch(AUTO_MSG_CHANNEL_ID).catch(() => null);
-        if (!canal) {
-          return interaction.editReply({ content: `❌ **Erro:** Não encontrei o canal <#${AUTO_MSG_CHANNEL_ID}>. Verifique se o bot tem acesso.` });
-        }
-
-        const embed = buildBomdiaMessage();
-        await canal.send({ embeds: [embed] });
-
-        await sendUpdateLog(client, 'Mensagem de Bom Dia Enviada', `Uma mensagem de bom dia foi enviada manualmente por <@${interaction.user.id}> no canal <#${AUTO_MSG_CHANNEL_ID}>.`, '#FEE75C');
-        await interaction.editReply({ content: `✅ **Sucesso:** Mensagem de bom dia enviada com sucesso em <#${AUTO_MSG_CHANNEL_ID}>!` });
+        const ok = await sendBomdiaMessage(client);
+        if (!ok) return interaction.editReply({ content: `❌ **Erro:** Não encontrei o canal <#${AUTO_MSG_CHANNEL_ID}>. Verifique se o bot tem acesso.` });
+        await sendUpdateLog(client, 'Teste Bom Dia', `Mensagem de bom dia enviada manualmente por <@${interaction.user.id}>.`, '#FEE75C');
+        await interaction.editReply({ content: `✅ **Sucesso:** Mensagem de bom dia enviada em <#${AUTO_MSG_CHANNEL_ID}>!` });
       } catch (err) {
         await notifyError(client, err, 'Botão Testar Bom Dia');
         await interaction.editReply({ content: '❌ **Erro:** Ocorreu um erro ao enviar a mensagem de bom dia.' });
       }
       return;
     }
-
+    // ─── Botão: Testar Todo Mundo On ──────────────────────────────────────
+    if (customId === 'test_todoMundoOn_btn') {
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        const ok = await sendTodoMundoOnMessage(client);
+        if (!ok) return interaction.editReply({ content: `❌ **Erro:** Não encontrei o canal <#${AUTO_MSG_CHANNEL_ID}>. Verifique se o bot tem acesso.` });
+        await sendUpdateLog(client, 'Teste Todo Mundo On', `Mensagem de todo mundo on enviada manualmente por <@${interaction.user.id}>.`, '#57F287');
+        await interaction.editReply({ content: `✅ **Sucesso:** Mensagem de todo mundo on enviada em <#${AUTO_MSG_CHANNEL_ID}>!` });
+      } catch (err) {
+        await notifyError(client, err, 'Botão Testar Todo Mundo On');
+        await interaction.editReply({ content: '❌ **Erro:** Ocorreu um erro ao enviar a mensagem.' });
+      }
+      return;
+    }
+    // ─── Botão: Ativar/Pausar Agendador (só DEV) ────────────────────────────
+    if (customId === 'toggle_scheduler_btn') {
+      if (!interaction.member.roles.cache.has(DEV_CARGO_ID)) {
+        return interaction.reply({ content: '❌ **Acesso Negado:** Apenas desenvolvedores podem ativar/pausar as mensagens automáticas.', ephemeral: true });
+      }
+      await interaction.deferUpdate();
+      const estaAtivo = isSchedulerAtivo();
+      setSchedulerAtivo(!estaAtivo);
+      const novoStatus = !estaAtivo;
+      await sendUpdateLog(client,
+        novoStatus ? '▶️ Mensagens Automáticas Iniciadas' : '⏸️ Mensagens Automáticas Pausadas',
+        `O agendador foi **${novoStatus ? 'iniciado' : 'pausado'}** por <@${interaction.user.id}>.`,
+        novoStatus ? '#57F287' : '#ED4245'
+      );
+      await interaction.followUp({
+        content: novoStatus
+          ? '▶️ **Mensagens automáticas iniciadas!** O bot vai enviar bom dia às 08:00 e todo mundo on às 18:00 (seg–sex).'
+          : '⏸️ **Mensagens automáticas pausadas!** Nenhuma mensagem será enviada até ser reativado.',
+        ephemeral: true
+      });
+      return renderTab(interaction, 'tab_mensagens', true);
+    }
+    // ─── Botão: Adicionar Mensagem Programada (só DEV) ───────────────────────
+    if (customId === 'add_auto_msg_btn') {
+      if (!interaction.member.roles.cache.has(DEV_CARGO_ID)) {
+        return interaction.reply({ content: '❌ **Acesso Negado:** Apenas desenvolvedores podem adicionar mensagens programadas.', ephemeral: true });
+      }
+      const modal = new ModalBuilder()
+        .setCustomId('modal_add_auto_msg')
+        .setTitle('➕ Adicionar Mensagem Programada');
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('auto_msg_canal')
+            .setLabel('ID do Canal')
+            .setPlaceholder('Cole o ID do canal onde a mensagem será enviada')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('auto_msg_hora')
+            .setLabel('Horário (HH:MM) — Horário de Brasília')
+            .setPlaceholder('Ex: 09:00 ou 20:30')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('auto_msg_dias')
+            .setLabel('Dias da Semana')
+            .setPlaceholder('todos | seg,ter,qua,qui,sex | dom,sab | seg,sex')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('auto_msg_texto')
+            .setLabel('Texto da Mensagem')
+            .setPlaceholder('Digite a mensagem que o bot vai enviar...')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+            .setMaxLength(2000),
+        ),
+      );
+      return interaction.showModal(modal);
+    }
+    // ─── Botão: Remover Mensagem Programada (só DEV) ───────────────────────
+    if (customId === 'remove_auto_msg_btn') {
+      if (!interaction.member.roles.cache.has(DEV_CARGO_ID)) {
+        return interaction.reply({ content: '❌ **Acesso Negado:** Apenas desenvolvedores podem remover mensagens programadas.', ephemeral: true });
+      }
+      const msgs = listScheduledMessages();
+      if (msgs.length === 0) {
+        return interaction.reply({ content: '❌ Não há mensagens programadas cadastradas.', ephemeral: true });
+      }
+      const select = new StringSelectMenuBuilder()
+        .setCustomId('remove_auto_msg_select')
+        .setPlaceholder('Selecione a mensagem para remover...')
+        .setMinValues(1)
+        .setMaxValues(1);
+      msgs.forEach((m, i) => {
+        const diasNomes = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+        const diasStr = Array.isArray(m.dias)
+          ? (m.dias.includes('todos') ? 'Todos os dias' : m.dias.map(d => diasNomes[d]).join(','))
+          : 'Todos';
+        select.addOptions(
+          new StringSelectMenuOptionBuilder()
+            .setLabel(`${i + 1}. ${m.hora} | ${diasStr}`)
+            .setDescription(m.texto.slice(0, 80))
+            .setValue(m.id)
+        );
+      });
+      const row = new ActionRowBuilder().addComponents(select);
+      return interaction.reply({ content: '🗑️ Selecione a mensagem que deseja remover:', components: [row], ephemeral: true });
+    }
     // ─── Botão: Adicionar Cargo ───────────────────────────────────────────────
     if (customId === 'add_role_btn') {
       const modal = new ModalBuilder()
@@ -667,6 +826,22 @@ module.exports = {
   },
 
   async handleSelectMenu(interaction) {
+    // ─── Select: Remover Mensagem Programada ───────────────────────────────────
+    if (interaction.customId === 'remove_auto_msg_select') {
+      if (!interaction.member.roles.cache.has(DEV_CARGO_ID)) {
+        return interaction.reply({ content: '❌ **Acesso Negado:** Apenas desenvolvedores podem remover mensagens programadas.', ephemeral: true });
+      }
+      const msgId = interaction.values[0];
+      removeScheduledMessage(msgId);
+      await interaction.update({
+        content: `✅ **Mensagem programada removida com sucesso!**`,
+        components: [],
+      });
+      await sendUpdateLog(interaction.client, '🗑️ Mensagem Programada Removida',
+        `<@${interaction.user.id}> removeu a mensagem programada com ID \`${msgId}\`.`
+      );
+      return;
+    }
     if (interaction.customId === 'remove_role_select') {
       if (!canUsePanel(interaction)) {
         return interaction.reply({ content: '❌ Você não tem permissão.', ephemeral: true });
@@ -762,7 +937,68 @@ module.exports = {
       return;
     }
 
-    // ─── Modal: Adicionar Cargo ───────────────────────────────────────────────
+       // ─── Modal: Adicionar Mensagem Programada ──────────────────────────────
+    if (customId === 'modal_add_auto_msg') {
+      if (!interaction.member.roles.cache.has(DEV_CARGO_ID)) {
+        return interaction.reply({ content: '❌ **Acesso Negado:** Apenas desenvolvedores podem adicionar mensagens programadas.', ephemeral: true });
+      }
+      const canalId  = fields.getTextInputValue('auto_msg_canal').replace(/[<#>]/g, '').trim();
+      const horaRaw  = fields.getTextInputValue('auto_msg_hora').trim();
+      const diasRaw  = fields.getTextInputValue('auto_msg_dias').trim().toLowerCase();
+      const texto    = fields.getTextInputValue('auto_msg_texto').trim();
+
+      // Valida canal
+      if (!/^\d+$/.test(canalId)) {
+        return interaction.reply({ content: '❌ O ID do canal deve conter apenas números.', ephemeral: true });
+      }
+      // Valida horário
+      if (!/^\d{1,2}:\d{2}$/.test(horaRaw)) {
+        return interaction.reply({ content: '❌ Horário inválido. Use o formato HH:MM (ex: 09:00).', ephemeral: true });
+      }
+      const [h, m] = horaRaw.split(':').map(Number);
+      if (h > 23 || m > 59) {
+        return interaction.reply({ content: '❌ Horário inválido. Horas: 0-23, Minutos: 0-59.', ephemeral: true });
+      }
+      const horaFmt = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+
+      // Converte dias
+      const mapaDias = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, 's\u00e1b': 6, sab: 6 };
+      let diasArr;
+      if (diasRaw === 'todos') {
+        diasArr = ['todos'];
+      } else {
+        diasArr = diasRaw.split(',').map(d => mapaDias[d.trim()]).filter(d => d !== undefined);
+        if (diasArr.length === 0) {
+          return interaction.reply({ content: '❌ Dias inválidos. Use: todos, seg, ter, qua, qui, sex, dom, sáb', ephemeral: true });
+        }
+      }
+
+      const novaMsg = {
+        id: `msg_${Date.now()}`,
+        canal_id: canalId,
+        hora: horaFmt,
+        dias: diasArr,
+        texto,
+        embed: false,
+        criado_por: interaction.user.id,
+        criado_em: new Date().toISOString()
+      };
+
+      addScheduledMessage(novaMsg);
+
+      await interaction.deferUpdate();
+      await renderTab(interaction, 'tab_mensagens', true);
+      await sendUpdateLog(client, '➕ Mensagem Programada Adicionada',
+        `<@${interaction.user.id}> adicionou uma mensagem programada:\n` +
+        `**Canal:** <#${canalId}> | **Horário:** ${horaFmt} | **Dias:** ${diasArr.join(',')}`
+      );
+      await interaction.followUp({
+        content: `✅ **Mensagem programada adicionada!**\n🕒 Será enviada às **${horaFmt}** (BRT) nos dias: **${diasArr.includes('todos') ? 'Todos os dias' : diasArr.join(', ')}** no canal <#${canalId}>.`,
+        ephemeral: true
+      });
+      return;
+    }
+    // ─── Modal: Adicionar Cargo ────────────────────────────────────────────
     if (customId === 'modal_add_role') {
       let roleId = fields.getTextInputValue('role_id_input').replace(/[<@&>]/g, '').trim();
 
