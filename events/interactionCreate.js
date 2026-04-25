@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { isGerencia } = require('../utils/permissions');
 const { sendStaffLog, notifyError, sendUpdateLog } = require('../utils/notifications');
+const { isMaintenanceMode } = require('../utils/maintenanceManager');
 
 // Caminho da config do painel
 const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
@@ -33,6 +34,31 @@ const CANAIS_AUTORIZADOS = [
     '1497368376920772628'
 ];
 
+// ─── Embed de Manutenção exibida para usuários comuns ────────────────────────
+function buildMaintenanceEmbed() {
+    return new EmbedBuilder()
+        .setColor(0xED4245)
+        .setTitle('🔧  Bot em Manutenção')
+        .setDescription(
+            '### ⚠️ O bot está em manutenção no momento!\n\n' +
+            '> Estamos realizando melhorias e atualizações para oferecer uma experiência ainda melhor.\n\n' +
+            '**Por favor, aguarde** enquanto a equipe conclui os trabalhos.\n\n' +
+            'Se precisar de ajuda urgente, clique no botão abaixo para chamar um suporte.'
+        )
+        .setThumbnail('https://cdn-icons-png.flaticon.com/512/2920/2920349.png')
+        .setFooter({ text: 'Size Management System • Manutenção' })
+        .setTimestamp();
+}
+
+function buildMaintenanceRow() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('manutencao_suporte_btn')
+            .setLabel('🆘 Chamar Suporte')
+            .setStyle(ButtonStyle.Danger)
+    );
+}
+
 module.exports = {
     name: 'interactionCreate',
     async execute(interaction) {
@@ -42,13 +68,74 @@ module.exports = {
         // IDs dinâmicos do painel (com fallbacks para os antigos se necessário)
         const CATEGORIA_ID       = panelConfig.CATEGORY_ID || '1497388763054342244';
         const CARGO_APROVADO     = panelConfig.CARGO_MORADOR_ID || '1490151003864043570';
-        const CARGO_FORMULARIO   = '1497394597746315355'; // Mantido fixo pois não está no painel
+        const CARGO_FORMULARIO   = '1497394597746315355';
         const CARGO_TESTE_ID     = '1497405005802635374';
 
-        // ─── Logs de Comandos ────────────────────────────────────
+        // ─── Botão: Chamar Suporte (Manutenção) ──────────────────────────────
+        // Este botão é tratado ANTES da verificação de manutenção para funcionar em modo manutenção
+        if (interaction.isButton() && interaction.customId === 'manutencao_suporte_btn') {
+            await interaction.deferReply({ ephemeral: true });
+
+            const { DEV_NOTIFY_USERS } = require('../utils/maintenanceManager');
+            let enviados = 0;
+
+            for (const userId of DEV_NOTIFY_USERS) {
+                try {
+                    const user = await client.users.fetch(userId).catch(() => null);
+                    if (user) {
+                        const embed = new EmbedBuilder()
+                            .setColor('#FF6B00')
+                            .setTitle('🆘 Usuário Solicitando Suporte')
+                            .setDescription(`O usuário <@${interaction.user.id}> está solicitando suporte durante o modo de manutenção.`)
+                            .addFields(
+                                { name: 'Usuário', value: `${interaction.user.tag} (\`${interaction.user.id}\`)`, inline: true },
+                                { name: 'Servidor', value: interaction.guild?.name || 'N/A', inline: true }
+                            )
+                            .setTimestamp();
+                        await user.send({ embeds: [embed] });
+                        enviados++;
+                    }
+                } catch (err) {
+                    console.error(`Erro ao notificar dev ${userId}:`, err);
+                }
+            }
+
+            await interaction.editReply({
+                content: `✅ **Suporte solicitado!** Nossa equipe foi notificada e entrará em contato em breve. Aguarde!`
+            });
+            return;
+        }
+
+        // ─── Verificação de Manutenção ────────────────────────────────────────
+        // Bloqueia interações de usuários comuns quando o modo manutenção está ativo
+        if (isMaintenanceMode() && !isGerencia(interaction)) {
+            // Permite apenas interações que não são comandos slash ou botões do painel
+            const isSlashCommand = interaction.isChatInputCommand();
+            const isButton = interaction.isButton();
+            const isModal = interaction.isModalSubmit();
+            const isSelect = interaction.isStringSelectMenu();
+
+            if (isSlashCommand || isButton || isModal || isSelect) {
+                try {
+                    const embed = buildMaintenanceEmbed();
+                    const row = buildMaintenanceRow();
+
+                    if (interaction.deferred || interaction.replied) {
+                        await interaction.followUp({ embeds: [embed], components: [row], ephemeral: true });
+                    } else {
+                        await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+                    }
+                } catch (err) {
+                    console.error('Erro ao enviar mensagem de manutenção:', err);
+                }
+                return;
+            }
+        }
+
+        // ─── Logs de Comandos ────────────────────────────────────────────────
         if (interaction.isChatInputCommand()) {
             const restrictedCommands = new Set(['set', 'painel']);
-            
+
             if (restrictedCommands.has(interaction.commandName) && !CANAIS_AUTORIZADOS.includes(interaction.channelId)) {
                 await interaction.reply({
                     content: `❌ Este comando só pode ser utilizado nos canais de comandos autorizados: <#${CANAIS_AUTORIZADOS[0]}> ou <#${CANAIS_AUTORIZADOS[1]}>.`,
@@ -62,10 +149,10 @@ module.exports = {
 
             const command = client.commands.get(interaction.commandName);
             if (!command) return;
-            
-            try { 
-                await command.execute(interaction); 
-            } catch (err) { 
+
+            try {
+                await command.execute(interaction);
+            } catch (err) {
                 console.error(err);
                 await notifyError(client, err, `Execução do comando /${interaction.commandName}`);
                 if (interaction.deferred || interaction.replied) {
@@ -79,44 +166,16 @@ module.exports = {
 
         const painelCommand = client.commands.get('painel');
 
-        // Lida com Botões do Painel
+        // ─── Lida com Botões do Painel ────────────────────────────────────────
         if (interaction.isButton() && painelCommand && typeof painelCommand.handleButton === 'function') {
             const painelButtonIds = [
-                'tab_stats', 'tab_roles', 'tab_config', 'add_role_btn', 'list_roles_btn', 
-                'remove_role_modal_btn', 'edit_staff_channel', 'edit_cargo_morador', 
-                'edit_cargo_membro', 'edit_category'
+                'tab_stats', 'tab_roles', 'tab_config', 'tab_manutencao', 'tab_mensagens',
+                'add_role_btn', 'list_roles_btn', 'remove_role_modal_btn',
+                'edit_staff_channel', 'edit_cargo_morador', 'edit_cargo_membro', 'edit_category',
+                'toggle_manutencao_btn', 'alert_manutencao_btn',
+                'send_msg_canal_btn', 'test_bomdia_btn',
+                'test_system_btn'
             ];
-            
-            // Botão de Teste do Sistema
-            if (interaction.customId === 'test_system_btn') {
-                if (!interaction.member.roles.cache.has(CARGO_TESTE_ID)) {
-                    return interaction.reply({ 
-                        content: '❌ **Acesso Negado:** Você não possui o cargo necessário para realizar testes no sistema.', 
-                        ephemeral: true 
-                    });
-                }
-
-                await interaction.deferReply({ ephemeral: true });
-
-                try {
-                    const testEmbed = new EmbedBuilder()
-                        .setColor('#5865F2')
-                        .setTitle('🧪 Teste de Sistema')
-                        .setDescription('Esta é uma mensagem de teste enviada via Painel Administrativo.')
-                        .addFields({ name: 'Solicitado por', value: `${interaction.user.tag} (\`${interaction.user.id}\`)` })
-                        .setTimestamp();
-
-                    await interaction.user.send({ embeds: [testEmbed] });
-                    
-                    await sendUpdateLog(client, 'Teste de Sistema Executado', `O usuário <@${interaction.user.id}> executou um teste de sistema. Uma DM de teste foi enviada com sucesso.`, '#FEE75C');
-                    
-                    await interaction.editReply({ content: '✅ **Sucesso:** A mensagem de teste foi enviada para o seu privado e o log foi gerado.' });
-                } catch (err) {
-                    await interaction.editReply({ content: '❌ **Erro:** Não consegui enviar a mensagem para o seu privado. Verifique se suas DMs estão abertas.' });
-                    await notifyError(client, err, 'Botão de Teste do Sistema');
-                }
-                return;
-            }
 
             if (painelButtonIds.includes(interaction.customId)) {
                 try {
@@ -128,11 +187,13 @@ module.exports = {
             }
         }
 
-        // Lida com Modais do Painel
+        // ─── Lida com Modais do Painel ────────────────────────────────────────
         if (interaction.isModalSubmit() && painelCommand && typeof painelCommand.handleModal === 'function') {
             const painelModalIds = [
-                'modal_add_role', 'modal_remove_role', 'modal_edit_staff_channel', 
-                'modal_edit_cargo_morador', 'modal_edit_cargo_membro', 'modal_edit_category'
+                'modal_add_role', 'modal_remove_role',
+                'modal_edit_staff_channel', 'modal_edit_cargo_morador',
+                'modal_edit_cargo_membro', 'modal_edit_category',
+                'modal_alert_devs', 'modal_send_msg_canal'
             ];
             if (painelModalIds.includes(interaction.customId)) {
                 try {
@@ -144,7 +205,7 @@ module.exports = {
             }
         }
 
-        // Lida com Select Menus do Painel
+        // ─── Lida com Select Menus do Painel ──────────────────────────────────
         if (interaction.isStringSelectMenu() && painelCommand && typeof painelCommand.handleSelectMenu === 'function') {
             if (interaction.customId === 'remove_role_select') {
                 try {
@@ -156,7 +217,7 @@ module.exports = {
             }
         }
 
-        // ─── Botão: Iniciar Recrutamento ──────────────────────────
+        // ─── Botão: Iniciar Recrutamento ──────────────────────────────────────
         if (interaction.isButton() && interaction.customId === 'size_set_start') {
             await sendStaffLog(client, '📝 Formulário Iniciado', `O usuário <@${interaction.user.id}> iniciou o preenchimento do formulário.`, '#FEE75C');
 
@@ -181,7 +242,7 @@ module.exports = {
             return;
         }
 
-        // ─── Modal: Envio de Respostas ────────────────────────────
+        // ─── Modal: Envio de Respostas ────────────────────────────────────────
         if (interaction.isModalSubmit() && interaction.customId === 'size_modal_form') {
             try {
                 const nome      = interaction.fields.getTextInputValue('campo_nome');
@@ -233,7 +294,7 @@ module.exports = {
             return;
         }
 
-        // ─── Botões: Aprovar / Reprovar ───────────────────────────
+        // ─── Botões: Aprovar / Reprovar ───────────────────────────────────────
         if (interaction.isButton() && (interaction.customId.startsWith('aprovar_') || interaction.customId.startsWith('reprovar_'))) {
             try {
                 if (!isGerencia(interaction)) {

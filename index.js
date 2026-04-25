@@ -10,6 +10,7 @@ const { handleVoiceStateUpdate } = require('./config/callManager');
 const { logger } = require('./utils/logger');
 const { setDiscordClient } = require('./utils/dashboardClient');
 const { notifyError, sendUpdateLog } = require('./utils/notifications');
+const { startScheduler } = require('./utils/scheduler');
 
 const app = express();
 const API_PORT = Number(process.env.API_PORT || 3000);
@@ -153,6 +154,9 @@ const registerCommands = async () => {
 client.once('ready', async () => {
     logger.info(`Bot conectado como ${client.user.tag}`);
     await registerCommands();
+    // Inicia o agendador de mensagens automáticas (bom dia)
+    startScheduler(client);
+    logger.info('Agendador de mensagens automáticas iniciado.');
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
