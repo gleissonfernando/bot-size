@@ -4,6 +4,7 @@ const {
     PermissionsBitField
 } = require('discord.js');
 const { createLimitModal, createUserIdModal } = require('./callHelpers');
+const { sendStaffLog, notifyError } = require('../utils/notifications');
 
 // In-memory storage for active calls
 // { channelId: { ownerId: string, roleId: string, bannedUsers: string[] } }
@@ -15,7 +16,7 @@ module.exports = {
     deletionTimers,
 
     async handleCallInteraction(interaction) {
-        const { customId, user, guild, member } = interaction;
+        const { customId, user, guild, member, client } = interaction;
         const voiceChannel = interaction.member?.voice.channel;
 
         // Logic for creating a call is the only one that doesn't require being in a call
@@ -38,7 +39,7 @@ module.exports = {
                     permissionOverwrites: [
                         {
                             id: guild.id,
-                            deny: [PermissionFlagsBits.Connect], // Default: Locked (we will make it public by default or private)
+                            deny: [PermissionFlagsBits.Connect], // Default: Locked
                         },
                         {
                             id: ownerRole.id,
@@ -59,8 +60,11 @@ module.exports = {
 
                 await member.roles.add(ownerRole);
                 await interaction.reply({ content: `✅ Call criada com sucesso! ${channel}`, ephemeral: true });
+                
+                await sendStaffLog(client, '🔊 Call Criada', `O usuário <@${user.id}> criou uma call temporária: ${channel.name}`, '#57F287');
             } catch (e) {
                 console.error(e);
+                await notifyError(client, e, 'Criação de Call Temporária');
                 await interaction.reply({ content: '❌ Erro ao criar call.', ephemeral: true });
             }
             return;
@@ -84,11 +88,13 @@ module.exports = {
             case 'call_private':
                 await voiceChannel.permissionOverwrites.edit(guild.id, { Connect: false });
                 await interaction.reply({ content: '🔒 Call agora está Privada!', ephemeral: true });
+                await sendStaffLog(client, '🔒 Call Privada', `A call <#${voiceChannel.id}> foi definida como **Privada** por <@${user.id}>.`, '#ED4245');
                 break;
 
             case 'call_public':
                 await voiceChannel.permissionOverwrites.edit(guild.id, { Connect: true });
                 await interaction.reply({ content: '🔓 Call agora está Pública!', ephemeral: true });
+                await sendStaffLog(client, '🔓 Call Pública', `A call <#${voiceChannel.id}> foi definida como **Pública** por <@${user.id}>.`, '#57F287');
                 break;
 
             case 'call_limit':
@@ -108,17 +114,19 @@ module.exports = {
                 break;
 
             case 'call_delete':
+                const channelName = voiceChannel.name;
                 await voiceChannel.delete();
                 const role = guild.roles.cache.get(callData.roleId);
                 if (role) await role.delete();
                 activeCalls.delete(voiceChannel.id);
                 await interaction.reply({ content: '🗑️ Call deletada com sucesso!', ephemeral: true });
+                await sendStaffLog(client, '🗑️ Call Deletada', `A call **${channelName}** foi deletada manualmente por <@${user.id}>.`, '#ED4245');
                 break;
         }
     },
 
     async handleModal(interaction) {
-        const { customId, user, guild, member } = interaction;
+        const { customId, user, guild, member, client } = interaction;
         const voiceChannel = interaction.member?.voice.channel;
         if (!voiceChannel) return;
 
@@ -132,6 +140,7 @@ module.exports = {
 
             await voiceChannel.setUserLimit(limit);
             await interaction.reply({ content: `🔢 Limite alterado para ${limit} usuários!`, ephemeral: true });
+            await sendStaffLog(client, '🔢 Limite de Call Alterado', `O limite da call <#${voiceChannel.id}> foi alterado para **${limit}** por <@${user.id}>.`, '#3498DB');
         }
         else if (customId.startsWith('modal_')) {
             const action = customId.split('_')[1];
@@ -146,7 +155,6 @@ module.exports = {
                     allow: [PermissionFlagsBits.Connect],
                 });
 
-                // Also grant the temporary call role to the target member
                 const callData = activeCalls.get(voiceChannel.id);
                 if (callData && callData.roleId) {
                     const role = await guild.roles.fetch(callData.roleId).catch(() => null);
@@ -156,10 +164,12 @@ module.exports = {
                 }
 
                 await interaction.reply({ content: `✅ ${targetMember.user.tag} agora pode entrar e recebeu o cargo da call!`, ephemeral: true });
+                await sendStaffLog(client, '✅ Usuário Permitido na Call', `O usuário <@${targetMember.id}> foi permitido na call <#${voiceChannel.id}> por <@${user.id}>.`, '#57F287');
             } else if (action === 'disconnect') {
                 try {
                     await targetMember.voice.setChannel(null);
                     await interaction.reply({ content: `🚫 ${targetMember.user.tag} foi desconectado!`, ephemeral: true });
+                    await sendStaffLog(client, '🚫 Usuário Desconectado', `O usuário <@${targetMember.id}> foi desconectado da call <#${voiceChannel.id}> por <@${user.id}>.`, '#E67E22');
                 } catch (e) {
                     await interaction.reply({ content: '❌ Não consegui desconectar o usuário.', ephemeral: true });
                 }
@@ -170,6 +180,7 @@ module.exports = {
                 });
                 callData.bannedUsers.push(targetMember.id);
                 await interaction.reply({ content: `🔨 ${targetMember.user.tag} foi banido da call!`, ephemeral: true });
+                await sendStaffLog(client, '🔨 Usuário Banido da Call', `O usuário <@${targetMember.id}> foi banido da call <#${voiceChannel.id}> por <@${user.id}>.`, '#ED4245');
             }
         }
     },
@@ -177,8 +188,6 @@ module.exports = {
     async handleVoiceStateUpdate(oldState, newState, client) {
         const guild = newState.guild;
 
-        // New channel created check (if we didn't create it via bot)
-        // but we care about empty channels
         if (oldState.channelId && !newState.channelId) {
             const oldChannelId = oldState.channelId;
             if (activeCalls.has(oldChannelId)) {
@@ -186,7 +195,6 @@ module.exports = {
                 if (oldChannel && oldChannel.members.size === 0) {
                     startDeletionTimer(oldChannelId, guild, client);
                 } else if (!oldChannel || oldChannel.members.size === 0) {
-                    // Fallback: if channel is already gone or empty
                     startDeletionTimer(oldChannelId, guild, client);
                 }
             }
@@ -195,7 +203,6 @@ module.exports = {
         if (newState.channelId) {
             const channel = newState.channel;
             if (activeCalls.has(channel.id)) {
-                // Cancel deletion timer if someone enters
                 if (deletionTimers.has(channel.id)) {
                     clearTimeout(deletionTimers.get(channel.id));
                     deletionTimers.delete(channel.id);
@@ -212,20 +219,19 @@ function startDeletionTimer(channelId, guild, client) {
         const channel = await guild.channels.fetch(channelId).catch(() => null);
         if (channel && channel.members.size === 0) {
             const data = activeCalls.get(channelId);
+            const channelName = channel.name;
             if (data && data.roleId) {
                 const role = await guild.roles.fetch(data.roleId).catch(() => null);
                 if (role) {
                     await role.delete().catch(err => console.error(`[ERROR] Falha ao deletar cargo: ${err}`));
-                    console.log(`🗑️ Cargo ${data.roleId} deletado.`);
                 }
             }
             if (channel) {
                 await channel.delete().catch(err => console.error(`[ERROR] Falha ao deletar canal: ${err}`));
-                console.log(`🗑️ Canal ${channelId} deletado.`);
             }
             activeCalls.delete(channelId);
-            console.log(`✅ Deleção automática concluída para a call ${channelId}`);
+            await sendStaffLog(client, '🧹 Deleção Automática', `A call **${channelName}** foi deletada automaticamente por estar vazia.`, '#95A5A6');
         }
-    }, 30000); // 30 segundos
+    }, 30000);
     deletionTimers.set(channelId, timer);
 }

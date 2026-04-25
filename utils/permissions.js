@@ -53,7 +53,11 @@ function isGerencia(interaction) {
     if (isUserAuthorizedById(userId)) return true;
 
     const gerenciaRoleIds = normalizeIds(config.gerenciaRoleIds);
-    return memberHasAnyRole(interaction.member, gerenciaRoleIds);
+    if (memberHasAnyRole(interaction.member, gerenciaRoleIds)) return true;
+
+    // Agora também considera os cargos cadastrados no /painel para permissões de gerência
+    const panelStaffRoleIds = getPanelStaffRoleIds();
+    return memberHasAnyRole(interaction.member, panelStaffRoleIds);
 }
 
 async function denyNotRegistered(interaction) {

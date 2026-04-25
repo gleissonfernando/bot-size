@@ -1,6 +1,7 @@
-const { Events } = require('discord.js');
-const { logger } = require('../utils/logger');
-const { deleteGuildConfig } = require('../utils/configManager');
+const { Events } = require("discord.js");
+const { logger } = require("../utils/logger");
+const { deleteGuildConfig } = require("../utils/configManager");
+const { sendStaffLog } = require("../utils/notifications");
 
 module.exports = {
   name: Events.GuildDelete,
@@ -12,11 +13,17 @@ module.exports = {
       await deleteGuildConfig(guild.id);
       logger.info(`Configurações do servidor ${guild.id} foram deletadas do banco de dados`);
 
-      // 2. Registrar no log de auditoria
-      logger.info(`AUDITORIA: Bot removido de ${guild.name} - Dados limpos automaticamente`);
+      // 2. Log em tempo real no canal de logs principal
+      const client = guild.client;
+      await sendStaffLog(
+        client,
+        "📤 Bot Removido de Servidor",
+        `O bot foi removido do servidor **${guild.name}** (\`${guild.id}\`).\nAs configurações locais foram limpas.`,
+        "#ED4245"
+      );
 
     } catch (error) {
       logger.error(`Erro ao processar remoção do bot do servidor ${guild.id}:`, error);
     }
-  }
+  },
 };

@@ -2,6 +2,7 @@ const { Events, EmbedBuilder } = require('discord.js');
 const { logger } = require('../utils/logger');
 const { getGuildConfig, processMessageVariables } = require('../utils/configManager');
 const { logMemberJoin } = require('../utils/guildLogger');
+const { sendStaffLog } = require('../utils/notifications');
 
 module.exports = {
     name: Events.GuildMemberAdd,
@@ -9,6 +10,14 @@ module.exports = {
         try {
             const guild = member.guild;
             logger.info(`Novo membro: ${member.user.username} entrou em ${guild.name}`);
+
+            // Log em tempo real
+            await sendStaffLog(
+                guild.client,
+                '📥 Novo Membro',
+                `O usuário <@${member.id}> (\`${member.user.tag}\`) entrou no servidor.`,
+                '#57F287'
+            );
 
             // 1. Buscar configurações do servidor
             const config = await getGuildConfig(guild.id);

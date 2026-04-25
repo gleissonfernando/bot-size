@@ -5,8 +5,8 @@ const path = require('path');
 const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
 
 // IDs atualizados conforme solicitação do usuário
-const ERROR_LOG_CHANNEL_ID = '1497380031016599603'; // Canal das Logs
-const UPDATE_LOG_CHANNEL_ID = '761011766440230932'; // Canal de Atualizações (conforme solicitado anteriormente)
+const ERROR_LOG_CHANNEL_ID = '1497380031016599603'; // Canal das Logs (Real-time)
+const UPDATE_LOG_CHANNEL_ID = '1497380031016599603'; // Unificando para o canal solicitado
 const ERROR_ROLE_ID = '1497405005802635374';
 const NOTIFY_USERS = ['761011766440230932', '1426287249020158018']; // DMs dos Devs
 
@@ -23,7 +23,7 @@ function loadConfig() {
 }
 
 /**
- * Envia um log para o canal de logs principal
+ * Envia um log para o canal de logs principal (Real-time)
  */
 async function sendStaffLog(client, title, description, color = '#5865F2', fields = []) {
     try {
@@ -33,7 +33,7 @@ async function sendStaffLog(client, title, description, color = '#5865F2', field
                 .setColor(color)
                 .setTitle(title)
                 .setDescription(description)
-                .setFooter({ text: 'Size Log System' })
+                .setFooter({ text: 'Size Log System • Real-time' })
                 .setTimestamp();
             
             if (fields.length > 0) embed.addFields(fields);

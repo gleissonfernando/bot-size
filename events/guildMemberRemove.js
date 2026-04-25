@@ -2,6 +2,7 @@ const { Events, EmbedBuilder } = require('discord.js');
 const { logger } = require('../utils/logger');
 const { getGuildConfig, processMessageVariables } = require('../utils/configManager');
 const { logMemberLeave } = require('../utils/guildLogger');
+const { sendStaffLog } = require('../utils/notifications');
 
 module.exports = {
     name: Events.GuildMemberRemove,
@@ -9,6 +10,14 @@ module.exports = {
         try {
             const guild = member.guild;
             logger.info(`Membro saiu: ${member.user.username} do servidor ${guild.name}`);
+
+            // Log em tempo real
+            await sendStaffLog(
+                guild.client,
+                '🚪 Membro Saiu',
+                `O usuário <@${member.id}> (\`${member.user.tag}\`) saiu do servidor.`,
+                '#ED4245'
+            );
 
             // 1. Buscar configurações do servidor
             const config = await getGuildConfig(guild.id);

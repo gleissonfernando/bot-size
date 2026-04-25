@@ -9,14 +9,24 @@ const {
     PermissionFlagsBits,
     ChannelType
 } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 const { isGerencia } = require('../utils/permissions');
 const { sendStaffLog, notifyError, sendUpdateLog } = require('../utils/notifications');
 
-// IDs fixos
-const CATEGORIA_ID       = '1497388763054342244';
-const CARGO_APROVADO     = '1490151003864043570';
-const CARGO_FORMULARIO   = '1497394597746315355';
-const CARGO_TESTE_ID     = '1497405005802635374';
+// Caminho da config do painel
+const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
+
+function loadPanelConfig() {
+    try {
+        if (fs.existsSync(CONFIG_PATH)) {
+            return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        }
+    } catch (err) {
+        console.error('Erro ao carregar config do painel:', err);
+    }
+    return {};
+}
 
 const CANAIS_AUTORIZADOS = [
     '1497421574108745728',
@@ -27,6 +37,13 @@ module.exports = {
     name: 'interactionCreate',
     async execute(interaction) {
         const { client } = interaction;
+        const panelConfig = loadPanelConfig();
+
+        // IDs dinâmicos do painel (com fallbacks para os antigos se necessário)
+        const CATEGORIA_ID       = panelConfig.CATEGORY_ID || '1497388763054342244';
+        const CARGO_APROVADO     = panelConfig.CARGO_MORADOR_ID || '1490151003864043570';
+        const CARGO_FORMULARIO   = '1497394597746315355'; // Mantido fixo pois não está no painel
+        const CARGO_TESTE_ID     = '1497405005802635374';
 
         // ─── Logs de Comandos ────────────────────────────────────
         if (interaction.isChatInputCommand()) {
