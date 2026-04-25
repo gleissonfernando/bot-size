@@ -1,6 +1,15 @@
-const { Events } = require('discord.js');
+const { Events, EmbedBuilder } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 
-const mongoose = require('mongoose');
+const CONFIG_PATH = path.join(__dirname, '..', 'commands', 'config.json');
+
+function loadConfig() {
+    if (fs.existsSync(CONFIG_PATH)) {
+        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    }
+    return {};
+}
 
 module.exports = {
     name: Events.ClientReady,
@@ -8,51 +17,30 @@ module.exports = {
     async execute(client) {
         console.log(`🚀 Bot Online! Logado como ${client.user.tag}`);
         
-        // Sincronização periódica de cargos de desenvolvedor
-        setInterval(async () => {
+        // Log de Inicialização no Canal de Logs
+        const config = loadConfig();
+        const logChannelId = config.STAFF_CHANNEL_ID; // Usando o canal configurado no painel
+
+        if (logChannelId) {
             try {
-                const User = mongoose.models.User;
-                if (!User) return;
+                const channel = await client.channels.fetch(logChannelId).catch(() => null);
+                if (channel) {
+                    const embed = new EmbedBuilder()
+                        .setColor('#5865F2')
+                        .setTitle('🚀 Sistema Inicializado')
+                        .setDescription('O bot da **Size** acabou de ser iniciado/reiniciado com sucesso.')
+                        .addFields(
+                            { name: '🛰️ Status', value: '`Online`', inline: true },
+                            { name: '⏰ Horário', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+                        )
+                        .setFooter({ text: 'Size Management System' })
+                        .setTimestamp();
 
-                const devs = await User.find({ role: { $in: ['developer', 'admin'] } });
-                const devIds = new Set(devs.map(d => d.discordId));
-                
-                // Pegamos o ID do cargo de dev do .env ou uma constante (precisa ser configurado no Discord)
-                const DEV_ROLE_ID = process.env.DEV_ROLE_ID;
-                if (!DEV_ROLE_ID) return;
-
-                for (const guild of client.guilds.cache.values()) {
-                    const role = guild.roles.cache.get(DEV_ROLE_ID);
-                    if (!role) continue;
-
-                    // Remove cargo de quem não é mais dev na dashboard
-                    role.members.forEach(async (member) => {
-                        if (!devIds.has(member.id) && member.id !== process.env.DEVELOPER_ID) {
-                            try {
-                                await member.roles.remove(role);
-                                console.log(`[SYNC] Cargo de Dev removido de ${member.user.tag} (Não autorizado na Dashboard)`);
-                            } catch (e) {
-                                // Ignora erros de permissão
-                            }
-                        }
-                    });
-
-                    // Adiciona cargo para quem é dev na dashboard mas não tem o cargo
-                    for (const devId of devIds) {
-                        try {
-                            const member = await guild.members.fetch(devId).catch(() => null);
-                            if (member && !member.roles.cache.has(DEV_ROLE_ID)) {
-                                await member.roles.add(role);
-                                console.log(`[SYNC] Cargo de Dev adicionado para ${member.user.tag} (Sincronizado via Dashboard)`);
-                            }
-                        } catch (e) {
-                            // Ignora erros
-                        }
-                    }
+                    await channel.send({ embeds: [embed] });
                 }
             } catch (error) {
-                console.error('[SYNC_ERROR]: Erro na sincronização de cargos:', error.message);
+                console.error('Erro ao enviar log de inicialização:', error);
             }
-        }, 1000 * 60 * 15); // Sincroniza a cada 15 minutos
+        }
     },
 };
