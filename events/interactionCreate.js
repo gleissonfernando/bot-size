@@ -10,12 +10,13 @@ const {
     ChannelType
 } = require('discord.js');
 const { isGerencia } = require('../utils/permissions');
-const { sendStaffLog, notifyError } = require('../utils/notifications');
+const { sendStaffLog, notifyError, sendUpdateLog } = require('../utils/notifications');
 
 // IDs fixos
 const CATEGORIA_ID       = '1497388763054342244';
 const CARGO_APROVADO     = '1490151003864043570';
 const CARGO_FORMULARIO   = '1497394597746315355';
+const CARGO_TESTE_ID     = '1497405005802635374';
 
 const CANAIS_AUTORIZADOS = [
     '1497421574108745728',
@@ -68,6 +69,38 @@ module.exports = {
                 'remove_role_modal_btn', 'edit_staff_channel', 'edit_cargo_morador', 
                 'edit_cargo_membro', 'edit_category'
             ];
+            
+            // Botão de Teste do Sistema
+            if (interaction.customId === 'test_system_btn') {
+                if (!interaction.member.roles.cache.has(CARGO_TESTE_ID)) {
+                    return interaction.reply({ 
+                        content: '❌ **Acesso Negado:** Você não possui o cargo necessário para realizar testes no sistema.', 
+                        ephemeral: true 
+                    });
+                }
+
+                await interaction.deferReply({ ephemeral: true });
+
+                try {
+                    const testEmbed = new EmbedBuilder()
+                        .setColor('#5865F2')
+                        .setTitle('🧪 Teste de Sistema')
+                        .setDescription('Esta é uma mensagem de teste enviada via Painel Administrativo.')
+                        .addFields({ name: 'Solicitado por', value: `${interaction.user.tag} (\`${interaction.user.id}\`)` })
+                        .setTimestamp();
+
+                    await interaction.user.send({ embeds: [testEmbed] });
+                    
+                    await sendUpdateLog(client, 'Teste de Sistema Executado', `O usuário <@${interaction.user.id}> executou um teste de sistema. Uma DM de teste foi enviada com sucesso.`, '#FEE75C');
+                    
+                    await interaction.editReply({ content: '✅ **Sucesso:** A mensagem de teste foi enviada para o seu privado e o log foi gerado.' });
+                } catch (err) {
+                    await interaction.editReply({ content: '❌ **Erro:** Não consegui enviar a mensagem para o seu privado. Verifique se suas DMs estão abertas.' });
+                    await notifyError(client, err, 'Botão de Teste do Sistema');
+                }
+                return;
+            }
+
             if (painelButtonIds.includes(interaction.customId)) {
                 try {
                     await painelCommand.handleButton(interaction);

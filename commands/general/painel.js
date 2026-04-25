@@ -92,6 +92,17 @@ function buildStatsEmbed() {
     .setTimestamp();
 }
 
+function buildStatsRows() {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('test_system_btn')
+      .setLabel('Testar Sistema')
+      .setEmoji('🧪')
+      .setStyle(ButtonStyle.Danger)
+  );
+  return [row];
+}
+
 function buildRolesEmbed() {
   const config = loadConfig();
   const roles = config.STAFF_ROLES ?? [];
@@ -192,7 +203,7 @@ async function renderTab(interaction, tab, edit = false) {
 
   if (tab === 'tab_stats') {
     embed = buildStatsEmbed();
-    extraRows = [];
+    extraRows = buildStatsRows();
   } else if (tab === 'tab_roles') {
     embed = buildRolesEmbed();
     extraRows = buildRolesRows();
