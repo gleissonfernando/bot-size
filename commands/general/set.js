@@ -3,7 +3,8 @@ const {
     EmbedBuilder,
     ActionRowBuilder,
     ButtonBuilder,
-    ButtonStyle
+    ButtonStyle,
+    AttachmentBuilder
 } = require('discord.js');
 const { isRegisteredUser, denyNotRegistered } = require('../../utils/permissions');
 
@@ -31,7 +32,7 @@ module.exports = {
                 '🔹 O processo é rápido e totalmente online\n' +
                 '🔹 Nossa equipe analisará sua ficha em breve'
             )
-            .setImage('https://i.imgur.com/SEU_BANNER.png')
+            .setImage('attachment://IMG_4234-fotor-bg-remover-20260424232155.png')
             .addFields(
                 {
                     name: '📊 Sobre o Processo',
@@ -66,9 +67,14 @@ module.exports = {
                 .setStyle(ButtonStyle.Secondary)
         );
 
+        const bannerAttachment = new AttachmentBuilder(
+            'foto/IMG_4234-fotor-bg-remover-20260424232155.png'
+        );
+
         await interaction.reply({
             embeds: [embed],
             components: [row],
+            files: [bannerAttachment],
             ephemeral: true
         });
     }

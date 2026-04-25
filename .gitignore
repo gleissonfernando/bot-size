@@ -41,3 +41,28 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 *.db
+
+# Local overrides / machine-specific configs
+*.local
+*.env.local
+*.env.development.local
+*.env.test.local
+*.env.production.local
+.npmrc
+*.pid
+*.seed
+*.tgz
+.eslintcache
+
+# Bot/session temporary files
+sessions/
+session/
+tmp/
+uploads/
+
+# Local command/config overrides
+commands/config.local.json
+config/*.local.js
+
+# Keep safe templates versioned
+!*.example
