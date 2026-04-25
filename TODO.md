@@ -23,3 +23,5 @@ sempor[x] Implementar Aprovar/Recusar com segurança
 [x] Painel: adicionar botão para listar cargos cadastrados
 [x] Painel: adicionar modo de remover cargo por ID (modal)
 [ ] Painel: validar fluxo de listar/remover cargos no Discord
+
+[x] Sincronização final de UI e Funções realizada em 24/04/2026.
