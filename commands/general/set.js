@@ -8,7 +8,6 @@ const {
 } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
-const { isRegisteredUser, denyNotRegistered } = require('../../utils/permissions');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -16,10 +15,7 @@ module.exports = {
         .setDescription('🎯 Abre o sistema de recrutamento Size'),
 
     async execute(interaction) {
-        if (!isRegisteredUser(interaction)) {
-            await denyNotRegistered(interaction);
-            return;
-        }
+        // Removida a verificação de permissão para permitir que todos vejam o painel
 
         // Nome do novo arquivo de banner
         const fileName = 'IMG_4234.png';
@@ -89,7 +85,7 @@ module.exports = {
                 embeds: [embed],
                 components: [row],
                 files: [bannerAttachment],
-                flags: 64
+                // Removido flags: 64 para que a mensagem seja pública
             });
         } catch (error) {
             console.error('[set] Erro ao enviar embed de recrutamento:', error);

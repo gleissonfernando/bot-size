@@ -25,6 +25,8 @@ module.exports = {
         // ─── Comando slash ───────────────────────────────────────
         if (interaction.isChatInputCommand()) {
             const restrictedCommands = new Set(['set', 'painel']);
+            // Removida a restrição de canal para permitir que os comandos sejam usados em qualquer lugar (público)
+            /*
             if (restrictedCommands.has(interaction.commandName) && interaction.channelId !== CANAL_COMANDOS_ID) {
                 await interaction.reply({
                     content: '❌ Este comando só pode ser usado no canal autorizado.',
@@ -32,6 +34,7 @@ module.exports = {
                 });
                 return;
             }
+            */
 
             const command = interaction.client.commands.get(interaction.commandName);
             if (!command) return;
