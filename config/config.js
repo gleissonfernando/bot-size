@@ -12,11 +12,8 @@ module.exports = {
         membro: process.env.ROLE_MEMBRO_ID || 'ID_DO_CARGO_MEMBRO'
     },
     staffRoles: [
-        '1490153641074757772',
-        '1485133524460634162',
-        '1490147350570860725',
-        '1490147169749962782',
-        '1490147455579193504'
+        1485109291542118420,
+  
     ],
     authorizedUserIds: (process.env.AUTHORIZED_USER_IDS || '')
         .split(',')
